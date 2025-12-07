@@ -1,6 +1,6 @@
 <?php
     namespace App\Traits;
-    trait ApiResponse{
+    trait ApiResponseTrait{
         protected function success($data,$pagination = [], $status = 200){
             return response()->json(
                 [
