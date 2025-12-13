@@ -23,6 +23,9 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'course_id',
+        'year_id',
+        'department_id',
     ];
 
     /**
@@ -46,5 +49,45 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    public function course()
+    {
+        return $this->belongsTo(\App\Models\Course::class);
+    }
+
+    public function year()
+    {
+        return $this->belongsTo(\App\Models\Year::class);
+    }
+
+    public function department()
+    {
+        return $this->belongsTo(\App\Models\Department::class);
+    }
+
+    public function logs()
+    {
+        return $this->hasMany(\App\Models\Log::class);
+    }
+
+    public function notifications()
+    {
+        return $this->hasMany(\App\Models\Notification::class);
+    }
+
+    public function authoredInformativos()
+    {
+        return $this->hasMany(\App\Models\Informativo::class, 'author_id');
+    }
+
+    public function publishedInformativos()
+    {
+        return $this->hasMany(\App\Models\Informativo::class, 'published_by');
+    }
+
+    public function favorites()
+    {
+        return $this->hasMany(\App\Models\Favorite::class);
     }
 }

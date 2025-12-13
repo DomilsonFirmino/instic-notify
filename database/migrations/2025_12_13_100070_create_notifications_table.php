@@ -13,7 +13,7 @@ return new class extends Migration {
             $table->string('title');
             $table->text('message');
             $table->timestamp('read_at')->nullable();
-            $table->timestamp('created_at');
+            $table->timestamps();
         });
     }
 

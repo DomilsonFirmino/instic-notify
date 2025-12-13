@@ -3,6 +3,11 @@
 namespace Database\Seeders;
 
 use App\Models\User;
+use App\Models\Department;
+use App\Models\Year;
+use App\Models\Course;
+use App\Models\Category;
+use App\Models\Informativo;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\Models\Permission;
@@ -100,37 +105,53 @@ class DatabaseSeeder extends Seeder
             $reviewerRole->syncPermissions($reviewerPermissions);
             $viewerRole->syncPermissions($viewerPermissions);
 
-            // Usuários de exemplo
+            // Estrutura básica
+            $departments = Department::factory()->count(3)->create();
+            $years = Year::factory()->count(4)->create();
+            $courses = Course::factory()->count(5)->create();
+            $categories = Category::factory()->count(5)->create();
+
+            // Usuários de exemplo (precisam de course_id e year_id)
+            $baseUser = [ 'password' => bcrypt('password123') ];
             $userAdmin = User::firstOrCreate([
                 'email' => 'admin@gmail.com',
-            ], [
+            ], array_merge($baseUser, [
                 'name' => 'Admin',
-                'password' => bcrypt('password123'),
-            ]);
+                'course_id' => $courses->random()->id,
+                'year_id' => $years->random()->id,
+                'department_id' => $departments->random()->id,
+            ]));
             $userEditor = User::firstOrCreate([
                 'email' => 'editor@gmail.com',
-            ], [
+            ], array_merge($baseUser, [
                 'name' => 'Editor',
-                'password' => bcrypt('password123'),
-            ]);
+                'course_id' => $courses->random()->id,
+                'year_id' => $years->random()->id,
+                'department_id' => $departments->random()->id,
+            ]));
             $userReviewer = User::firstOrCreate([
                 'email' => 'revisor@gmail.com',
-            ], [
+            ], array_merge($baseUser, [
                 'name' => 'Revisor',
-                'password' => bcrypt('password123'),
-            ]);
+                'course_id' => $courses->random()->id,
+                'year_id' => $years->random()->id,
+                'department_id' => $departments->random()->id,
+            ]));
             $userViewer = User::firstOrCreate([
                 'email' => 'leitor@gmail.com',
-            ], [
+            ], array_merge($baseUser, [
                 'name' => 'Leitor',
-                'password' => bcrypt('password123'),
-            ]);
+                'course_id' => $courses->random()->id,
+                'year_id' => $years->random()->id,
+                'department_id' => $departments->random()->id,
+            ]));
 
             $userAdmin->assignRole($adminRole);
             $userEditor->assignRole($editorRole);
             $userReviewer->assignRole($reviewerRole);
             $userViewer->assignRole($viewerRole);
-        // User::factory(10)->create();
+        // Informativos de exemplo
+        Informativo::factory()->count(10)->create();
 
         // User::factory()->create([
         //     'name' => 'Test User',
