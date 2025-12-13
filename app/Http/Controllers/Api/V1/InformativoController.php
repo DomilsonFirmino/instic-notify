@@ -2,23 +2,28 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\ApiController;
 use App\Http\Requests\Api\V1\StoreInformativoRequest;
 use App\Http\Requests\Api\V1\UpdateInformativoRequest;
 use App\Models\Favorite;
 use App\Models\Informativo;
-use App\Traits\ApiResponseTrait;
 use Illuminate\Http\Request;
 
-class InformativoController extends Controller
+class InformativoController extends ApiController
 {
-    use ApiResponseTrait;
 
     public function index(Request $request)
     {
         $query = Informativo::query()->with(['category','course','year','author','publisher']);
-        if ($status = $request->get('status')) { $query->where('status', $status); }
-        return $this->success($query->paginate());
+
+        $paginator = $query->paginate();
+        $meta = [
+            'current_page' => $paginator->currentPage(),
+            'per_page' => $paginator->perPage(),
+            'total' => $paginator->total(),
+            'last_page' => $paginator->lastPage(),
+        ];
+        return $this->success($paginator->items(), $meta);
     }
 
     public function store(StoreInformativoRequest $request)

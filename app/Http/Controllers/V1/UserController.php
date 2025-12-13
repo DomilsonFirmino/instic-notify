@@ -104,7 +104,7 @@ class UserController extends ApiController
         }
 
         $user->delete();
-        return $this->success(['message' => "User with ID: $id deleted"], 200);
+        return $this->success(['message' => "User with ID: $id deleted"],[], 200);
     }
 
     public function favorites($id)
