@@ -14,6 +14,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/users', [UserController::class, 'store'])->middleware('role:admin');
     Route::put('/users/{id}', [UserController::class, 'update']);
     Route::delete('/users/{id}', [UserController::class, 'destroy']);
+    Route::get('/users/{id}/favorites', [UserController::class, 'favorites']);
+    Route::get('/users/{id}/notifications', [UserController::class, 'notifications']);
+    Route::post('/users/{userId}/notifications/{notificationId}/read', [UserController::class, 'markNotificationAsRead']);
+    Route::post('/users/notifications/mark-all-read', [UserController::class, 'markAllNotificationsAsRead']);
+    Route::get('/users/me', [UserController::class, 'me']);
 
     Route::apiResource('categories', CategoryController::class);
     Route::apiResource('departments', DepartmentController::class);

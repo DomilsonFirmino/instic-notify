@@ -4,13 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use Illuminate\Http\Request;
-use App\Traits\ApiResponseTrait;
 use Illuminate\Support\Facades\Auth;
-use App\Http\Controllers\Controller;
 
-class AuthController extends Controller
+class AuthController extends ApiController
 {
-    use ApiResponseTrait;
     public function store(Request $request)
     {
         $validatedData = $request->validate([
@@ -21,10 +18,7 @@ class AuthController extends Controller
         $user = User::where('email', $request->email)->first();
 
         if(!Auth::attempt($validatedData)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Login failed. Please check your credentials.'
-            ], 401);
+            return $this->error('Login failed. Please check your credentials.', [], 401);
         }
 
         $token = $user->createToken($user->name)->plainTextToken;
@@ -32,7 +26,7 @@ class AuthController extends Controller
 
         // Implement login logic here
         return $this->success([
-            'user' => $user,
+            'user' => $user->load('course', 'year', 'department')->only(['id', 'name', 'email', 'role']),
             'token' => $token,
         ], [], 200);
     }

@@ -117,6 +117,7 @@ class DatabaseSeeder extends Seeder
                 'email' => 'admin@gmail.com',
             ], array_merge($baseUser, [
                 'name' => 'Admin',
+                'role' => 'admin',
                 'course_id' => $courses->random()->id,
                 'year_id' => $years->random()->id,
                 'department_id' => $departments->random()->id,
@@ -125,6 +126,7 @@ class DatabaseSeeder extends Seeder
                 'email' => 'editor@gmail.com',
             ], array_merge($baseUser, [
                 'name' => 'Editor',
+                'role' => 'editor',
                 'course_id' => $courses->random()->id,
                 'year_id' => $years->random()->id,
                 'department_id' => $departments->random()->id,
@@ -133,6 +135,7 @@ class DatabaseSeeder extends Seeder
                 'email' => 'revisor@gmail.com',
             ], array_merge($baseUser, [
                 'name' => 'Revisor',
+                'role' => 'revisor',
                 'course_id' => $courses->random()->id,
                 'year_id' => $years->random()->id,
                 'department_id' => $departments->random()->id,
@@ -141,6 +144,7 @@ class DatabaseSeeder extends Seeder
                 'email' => 'leitor@gmail.com',
             ], array_merge($baseUser, [
                 'name' => 'Leitor',
+                'role' => 'leitor',
                 'course_id' => $courses->random()->id,
                 'year_id' => $years->random()->id,
                 'department_id' => $departments->random()->id,
