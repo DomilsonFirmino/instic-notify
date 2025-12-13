@@ -30,6 +30,9 @@ class DatabaseSeeder extends Seeder
                 'user.delete',
                 'user.assign_role',
                 'permission.manage',
+                // User self-management
+                'users.view-self',
+                'users.update-self',
                 'informativo.create',
                 'informativo.edit_any',
                 'informativo.publish',
@@ -81,6 +84,7 @@ class DatabaseSeeder extends Seeder
             // Permissões por papel
             $adminPermissions = [
                 'user.create', 'user.edit', 'user.delete', 'user.assign_role', 'permission.manage',
+                'users.view-self', 'users.update-self',
                 'informativo.create', 'informativo.edit_any', 'informativo.publish', 'informativo.unpublish',
                 'informativo.delete', 'informativo.approve', 'informativo.reject', 'informativo.restore_version',
                 'informativo.manage_attachments',
@@ -90,6 +94,7 @@ class DatabaseSeeder extends Seeder
             $editorPermissions = [
                 'informativo.create_own', 'informativo.edit_own', 'informativo.submit_for_review',
                 'informativo.attach_documents', 'informativo.set_dates', 'informativo.view_own_history',
+                'users.view-self', 'users.update-self',
             ];
             $reviewerPermissions = [
                 'informativo.list_pending', 'informativo.review', 'informativo.approve_review',
@@ -98,6 +103,7 @@ class DatabaseSeeder extends Seeder
             $viewerPermissions = [
                 'informativo.view_published', 'informativo.filter', 'informativo.download_attachments',
                 'informativo.receive_notifications', 'informativo.subscribe_categories',
+                'users.view-self', 'users.update-self',
             ];
 
             $adminRole->syncPermissions($adminPermissions);

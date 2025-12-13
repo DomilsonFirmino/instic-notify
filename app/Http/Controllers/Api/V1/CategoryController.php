@@ -2,16 +2,13 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\ApiController;
 use App\Http\Requests\Api\V1\StoreCategoryRequest;
 use App\Http\Requests\Api\V1\UpdateCategoryRequest;
 use App\Models\Category;
-use App\Traits\ApiResponseTrait;
 
-class CategoryController extends Controller
+class CategoryController extends ApiController
 {
-    use ApiResponseTrait;
-
     public function index()
     {
         return $this->success(Category::query()->paginate());
