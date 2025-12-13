@@ -12,11 +12,13 @@ class Informativo extends Model
     use HasFactory;
 
     protected $fillable = [
-        'title','content','status','category_id','course_id','year_id','author_id','published_by','published_at','rejection_reason'
+        'title','content','status','category_id','course_id','year_id','author_id','published_by','published_at','publish_at','unpublished_at','rejection_reason'
     ];
 
     protected $casts = [
         'published_at' => 'datetime',
+        'publish_at' => 'datetime',
+        'unpublished_at' => 'datetime',
     ];
 
     public function category(): BelongsTo { return $this->belongsTo(Category::class); }
@@ -26,4 +28,5 @@ class Informativo extends Model
     public function publisher(): BelongsTo { return $this->belongsTo(User::class, 'published_by'); }
     public function files(): HasMany { return $this->hasMany(InformativoFile::class); }
     public function favorites(): HasMany { return $this->hasMany(Favorite::class); }
+    public function reviews(): HasMany { return $this->hasMany(InformativoReview::class); }
 }
