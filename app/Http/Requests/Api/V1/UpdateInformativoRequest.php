@@ -2,9 +2,9 @@
 
 namespace App\Http\Requests\Api\V1;
 
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\Api\ApiRequest;
 
-class UpdateInformativoRequest extends FormRequest
+class UpdateInformativoRequest extends ApiRequest
 {
     public function authorize(): bool { return true; }
     public function rules(): array

@@ -2,9 +2,9 @@
 
 namespace App\Http\Requests\Api\V1;
 
-use Illuminate\Foundation\Http\FormRequest;
+use App\Http\Requests\Api\ApiRequest;
 
-class StoreUserRequest extends FormRequest
+class StoreUserRequest extends ApiRequest
 {
     public function authorize(): bool
     {
