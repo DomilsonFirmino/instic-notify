@@ -17,7 +17,7 @@ class InformativoController extends ApiController
 
     public function index(Request $request)
     {
-        $query = Informativo::query()->with(['category','course','year','department','author','publisher']);
+        $query = Informativo::query()->with(['category','course','year','department','author','publisher','reviews']);
 
         $auth = $request->user();
         if ($auth && ($auth->role ?? null) === 'leitor') {
@@ -82,16 +82,43 @@ class InformativoController extends ApiController
 
     public function show(Informativo $informativo)
     {
-        return $this->success($informativo->load(['category','course','year','author','publisher']));
+        return $this->success($informativo->load(['category','course','year','author','publisher','reviews']));
     }
 
     public function update(UpdateInformativoRequest $request, Informativo $informativo)
     {
-        // Only allow author edits when status is rascunho or revisao
         $auth = $request->user();
+        // Admin bypasses all checks
+        if ($auth && $auth->hasRole('admin')) {
+            $informativo->update($request->validated());
+            Log::create([
+                'user_id' => $auth->id,
+                'action' => 'informativo.update',
+                'description' => 'Informativo atualizado ID '.$informativo->id,
+                'created_at' => now(),
+            ]);
+            return $this->success($informativo->load(['category','course','year','author','publisher']));
+        }
+
+        // Reviewer can only edit when status is pendente
+        if ($auth && $auth->hasRole('revisor')) {
+            if ($informativo->status !== 'pendente') {
+                return $this->error('O revisor só pode editar informativos pendentes.', 'FORBIDDEN', [], 403);
+            }
+            $informativo->update($request->validated());
+            Log::create([
+                'user_id' => $auth->id,
+                'action' => 'informativo.update',
+                'description' => 'Informativo atualizado pelo revisor ID '.$informativo->id,
+                'created_at' => now(),
+            ]);
+            return $this->success($informativo->load(['category','course','year','author','publisher']));
+        }
+
+        // Author can edit only when status is rascunho or revisao
         $isAuthor = $auth && $auth->id === $informativo->author_id;
         if (!$isAuthor || !in_array($informativo->status, ['rascunho','revisao'], true)) {
-            return $this->error('O editor só pode alterar em rascunho ou revisão.', 'FORBIDDEN', [], 403);
+            return $this->error('O autor só pode editar em rascunho ou revisão.', 'FORBIDDEN', [], 403);
         }
 
         $informativo->update($request->validated());
@@ -192,6 +219,54 @@ class InformativoController extends ApiController
             'created_at' => now(),
         ]);
         return $this->success($informativo->fresh());
+    }
+
+    public function requestChanges(Request $request, Informativo $informativo)
+    {
+        $auth = $request->user();
+        // Admins always have access
+        if ($auth && $auth->hasRole('admin')) {
+            $data = $request->validate(['feedback' => ['required','string']]);
+            $informativo->update(['status' => 'revisao', 'rejection_reason' => null]);
+            $informativo->reviews()->create([
+                'reviewer_id' => $auth->id,
+                'decision' => 'revisao',
+                'comment' => $data['feedback'],
+                'created_at' => now(),
+            ]);
+            Log::create([
+                'user_id' => $auth->id,
+                'action' => 'informativo.request_changes',
+                'description' => 'Solicitadas mudanças (admin) para Informativo ID '.$informativo->id,
+                'created_at' => now(),
+            ]);
+            return $this->success($informativo->fresh()->load('reviews'));
+        }
+        if (!$auth || !($auth->hasRole('revisor') || $auth->can('informativos.review'))) {
+            return $this->error('Sem permissão para solicitar revisão.', 'FORBIDDEN', [], 403);
+        }
+        if ($informativo->status !== 'pendente') {
+            return $this->error('Solicitação de revisão apenas em itens pendentes.', 'UNPROCESSABLE', [], 422);
+        }
+        $data = $request->validate(['feedback' => ['required','string']]);
+
+        $informativo->update(['status' => 'revisao', 'rejection_reason' => null]);
+
+        // Log review entry
+        $informativo->reviews()->create([
+            'reviewer_id' => $auth->id,
+            'decision' => 'revisao',
+            'comment' => $data['feedback'],
+            'created_at' => now(),
+        ]);
+
+        Log::create([
+            'user_id' => $auth->id,
+            'action' => 'informativo.request_changes',
+            'description' => 'Solicitadas mudanças para Informativo ID '.$informativo->id,
+            'created_at' => now(),
+        ]);
+        return $this->success($informativo->fresh()->load('reviews'));
     }
 
     public function toggleFavorite(Request $request, Informativo $informativo)
