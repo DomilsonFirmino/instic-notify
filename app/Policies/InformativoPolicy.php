@@ -17,11 +17,6 @@ class InformativoPolicy
     }
     public function updateStatus(User $user, Informativo $informativo, string $to): bool
     {
-        // Publishers: agendado, publicado, despublicado
-        if ($user->can('informativos.publish')) {
-            return in_array($to, ['agendado','publicado','despublicado'], true);
-        }
-
         // Reviewers: pendente, revisao, aprovado, rejeitado
         if ($user->can('informativos.review')) {
             return in_array($to, ['pendente','revisao','aprovado','rejeitado'], true);

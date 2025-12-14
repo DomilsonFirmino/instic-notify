@@ -7,6 +7,9 @@ use App\Http\Requests\Api\V1\StoreInformativoRequest;
 use App\Http\Requests\Api\V1\UpdateInformativoRequest;
 use App\Models\Favorite;
 use App\Models\Informativo;
+use App\Models\Log;
+use App\Models\Notification as UserNotification;
+use App\Models\User;
 use Illuminate\Http\Request;
 
 class InformativoController extends ApiController
@@ -41,7 +44,33 @@ class InformativoController extends ApiController
 
     public function store(StoreInformativoRequest $request)
     {
-        $informativo = Informativo::create($request->validated());
+        $data = $request->validated();
+        // Ensure initial status is only 'rascunho' or 'pendente'
+        if (!in_array($data['status'] ?? 'rascunho', ['rascunho','pendente'], true)) {
+            $data['status'] = 'rascunho';
+        }
+        $informativo = Informativo::create($data);
+
+        // Audit log
+        Log::create([
+            'user_id' => $request->user()->id,
+            'action' => 'informativo.store',
+            'description' => 'Informativo criado ID '.$informativo->id.' com status '.$informativo->status,
+            'created_at' => now(),
+        ]);
+
+        // Notify reviewers when submitted for review
+        if ($informativo->status === 'pendente') {
+            $reviewers = User::where('role', 'revisor')->get();
+            foreach ($reviewers as $rev) {
+                UserNotification::create([
+                    'user_id' => $rev->id,
+                    'title' => 'Informativo pendente de revisão',
+                    'message' => 'O informativo #'.$informativo->id.' necessita de revisão.',
+                    'created_at' => now(),
+                ]);
+            }
+        }
         return $this->success($informativo->load(['category','course','year','author','publisher']), status:201);
     }
 
@@ -52,50 +81,110 @@ class InformativoController extends ApiController
 
     public function update(UpdateInformativoRequest $request, Informativo $informativo)
     {
+        // Only allow author edits when status is rascunho or revisao
+        $auth = $request->user();
+        $isAuthor = $auth && $auth->id === $informativo->author_id;
+        if (!$isAuthor || !in_array($informativo->status, ['rascunho','revisao'], true)) {
+            return $this->error('O editor só pode alterar em rascunho ou revisão.', 'FORBIDDEN', [], 403);
+        }
+
         $informativo->update($request->validated());
+
+        Log::create([
+            'user_id' => $auth->id,
+            'action' => 'informativo.update',
+            'description' => 'Informativo atualizado ID '.$informativo->id,
+            'created_at' => now(),
+        ]);
         return $this->success($informativo->load(['category','course','year','author','publisher']));
     }
 
     public function destroy(Informativo $informativo)
     {
+        $auth = request()->user();
+        // Only allow delete by author while in rascunho
+        if (!$auth || $auth->id !== $informativo->author_id || $informativo->status !== 'rascunho') {
+            return $this->error('A remoção só é permitida em rascunho pelo autor.', 'FORBIDDEN', [], 403);
+        }
+
         $informativo->delete();
+        Log::create([
+            'user_id' => $auth->id,
+            'action' => 'informativo.destroy',
+            'description' => 'Informativo removido ID '.$informativo->id,
+            'created_at' => now(),
+        ]);
         return $this->success(['deleted' => true]);
     }
 
-    public function publish(Request $request, Informativo $informativo)
-    {
-        $informativo->update([
-            'status' => 'published',
-            'published_by' => $request->user()?->id ?? $request->input('published_by'),
-            'published_at' => now(),
-            'rejection_reason' => null,
-        ]);
-        return $this->success($informativo->fresh());
-    }
-
-    public function unpublish(Informativo $informativo)
-    {
-        $informativo->update(['status' => 'draft', 'published_by' => null, 'published_at' => null]);
-        return $this->success($informativo->fresh());
-    }
+    // Publishment is performed by scheduler; no manual publish/unpublish endpoints
 
     public function schedule(Request $request, Informativo $informativo)
     {
         $data = $request->validate([
             'publish_at' => ['required','date']
         ]);
+        $auth = $request->user();
+        // Allow setting publish_at only when approved; by reviewer or author
+        $canSchedule = ($auth && ($auth->hasRole('revisor') || $auth->can('informativos.review') || $auth->id === $informativo->author_id));
+        if (!$canSchedule) {
+            return $this->error('Sem permissão para agendar.', 'FORBIDDEN', [], 403);
+        }
+        if ($informativo->status !== 'aprovado') {
+            return $this->error('Agendamento apenas quando o informativo está aprovado.', 'UNPROCESSABLE', [], 422);
+        }
         $informativo->update([
-            'status' => 'agendado',
             'publish_at' => $data['publish_at'],
             'rejection_reason' => null,
+        ]);
+
+        Log::create([
+            'user_id' => $auth->id,
+            'action' => 'informativo.schedule',
+            'description' => 'Publicação agendada para Informativo ID '.$informativo->id.' em '.$data['publish_at'],
+            'created_at' => now(),
         ]);
         return $this->success($informativo->fresh());
     }
 
     public function reject(Request $request, Informativo $informativo)
     {
+        $auth = $request->user();
+        if (!$auth || !($auth->hasRole('revisor') || $auth->can('informativos.review'))) {
+            return $this->error('Sem permissão para rejeitar.', 'FORBIDDEN', [], 403);
+        }
+        if ($informativo->status !== 'pendente') {
+            return $this->error('Rejeição apenas em itens pendentes.', 'UNPROCESSABLE', [], 422);
+        }
         $request->validate(['reason' => ['required','string']]);
-        $informativo->update(['status' => 'rejected', 'rejection_reason' => $request->input('reason'), 'published_by' => null, 'published_at' => null]);
+        $informativo->update(['status' => 'rejeitado', 'rejection_reason' => $request->input('reason'), 'published_by' => null, 'published_at' => null]);
+
+        Log::create([
+            'user_id' => $auth->id,
+            'action' => 'informativo.reject',
+            'description' => 'Informativo rejeitado ID '.$informativo->id,
+            'created_at' => now(),
+        ]);
+        return $this->success($informativo->fresh());
+    }
+
+    public function approve(Request $request, Informativo $informativo)
+    {
+        $auth = $request->user();
+        if (!$auth || !($auth->hasRole('revisor') || $auth->can('informativos.review'))) {
+            return $this->error('Sem permissão para aprovar.', 'FORBIDDEN', [], 403);
+        }
+        if ($informativo->status !== 'pendente') {
+            return $this->error('Aprovação apenas em itens pendentes.', 'UNPROCESSABLE', [], 422);
+        }
+        $informativo->update(['status' => 'aprovado', 'rejection_reason' => null]);
+
+        Log::create([
+            'user_id' => $auth->id,
+            'action' => 'informativo.approve',
+            'description' => 'Informativo aprovado ID '.$informativo->id,
+            'created_at' => now(),
+        ]);
         return $this->success($informativo->fresh());
     }
 

@@ -30,9 +30,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         ->middlewareFor('store','update','destroy', 'role:admin');
 
     Route::apiResource('informativos', InformativoController::class);
-    Route::post('informativos/{informativo}/publish', [InformativoController::class, 'publish']);
-    Route::post('informativos/{informativo}/unpublish', [InformativoController::class, 'unpublish']);
     Route::post('informativos/{informativo}/schedule', [InformativoController::class, 'schedule']);
     Route::post('informativos/{informativo}/reject', [InformativoController::class, 'reject']);
+    Route::post('informativos/{informativo}/approve', [InformativoController::class, 'approve']);
     Route::post('informativos/{informativo}/favorite', [InformativoController::class, 'toggleFavorite']);
 });
