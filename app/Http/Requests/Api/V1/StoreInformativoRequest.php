@@ -7,7 +7,7 @@ use App\Http\Requests\Api\ApiRequest;
 class StoreInformativoRequest extends ApiRequest
 {
     public function authorize(): bool {
-        return $this->user()->can('informativos.create') || $this->user()->can('informativos.create_own');
+        return $this->user()->hasRole('admin') || $this->user()->hasRole('editor');
     }
     public function rules(): array
     {
@@ -19,7 +19,8 @@ class StoreInformativoRequest extends ApiRequest
             'course_id' => ['nullable','integer','exists:courses,id'],
             'year_id' => ['nullable','integer','exists:years,id'],
             'department_id' => ['nullable','integer','exists:departments,id'],
-            'author_id' => ['required','integer','exists:users,id'],
+            // author_id is always set from authenticated user
+            'author_id' => ['prohibited'],
             'publish_at' => ['nullable','date'],
             'published_at' => ['nullable','date'],
             'unpublished_at' => ['nullable','date'],

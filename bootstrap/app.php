@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Spatie\Permission\Exceptions\UnauthorizedException as SpatieUnauthorizedException;
 use Spatie\Permission\Middleware\RoleMiddleware;
 use Spatie\Permission\Middleware\PermissionMiddleware;
 use Spatie\Permission\Middleware\RoleOrPermissionMiddleware;
@@ -96,6 +97,26 @@ return Application::configure(basePath: dirname(__DIR__))
                         'error' => [
                             'code' => 'FORBIDDEN',
                             'message' => $e->getMessage() ?: 'Sem permissão para executar esta ação.',
+                            'details' => [
+                                'path' => $request->path(),
+                                'params' => $request->route()?->parameters() ?? [],
+                                'user_id' => optional($request->user())->id,
+                            ],
+                        ],
+                    ], 403);
+                }
+                return null; // fall back to default handler for non-JSON requests
+            });
+
+            // Handle Spatie\Permission UnauthorizedException (e.g., missing required roles/permissions)
+            $exceptions->render(function (SpatieUnauthorizedException $e, $request) {
+                if ($request->expectsJson()) {
+                    // Map Spatie's exception to a consistent 403 JSON structure
+                    return response()->json([
+                        'success' => false,
+                        'error' => [
+                            'code' => 'FORBIDDEN',
+                            'message' => $e->getMessage() ?: 'User does not have the right roles.',
                             'details' => [
                                 'path' => $request->path(),
                                 'params' => $request->route()?->parameters() ?? [],

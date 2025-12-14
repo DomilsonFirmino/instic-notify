@@ -45,11 +45,12 @@ class InformativoController extends ApiController
     public function store(StoreInformativoRequest $request)
     {
         $data = $request->validated();
+        // Create via the user's authored relationship (sets author_id automatically)
         // Ensure initial status is only 'rascunho' or 'pendente'
         if (!in_array($data['status'] ?? 'rascunho', ['rascunho','pendente'], true)) {
             $data['status'] = 'rascunho';
         }
-        $informativo = Informativo::create($data);
+        $informativo = $request->user()->authoredInformativos()->create($data);
 
         // Audit log
         Log::create([
