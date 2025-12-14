@@ -17,12 +17,12 @@ class CategoryController extends ApiController
     public function store(StoreCategoryRequest $request)
     {
         $category = Category::create($request->validated());
-        return $this->success($category, status: 201);
+        return $this->success($category, [],201);
     }
 
     public function show(Category $category)
     {
-        return $this->success($category);
+        return $this->success($category,[],200);
     }
 
     public function update(UpdateCategoryRequest $request, Category $category)

@@ -47,7 +47,7 @@ class InformativoController extends ApiController
 
     public function show(Informativo $informativo)
     {
-        return $this->success($informativo->load(['category','course','year','author','publisher','files']));
+        return $this->success($informativo->load(['category','course','year','author','publisher']));
     }
 
     public function update(UpdateInformativoRequest $request, Informativo $informativo)
@@ -76,6 +76,19 @@ class InformativoController extends ApiController
     public function unpublish(Informativo $informativo)
     {
         $informativo->update(['status' => 'draft', 'published_by' => null, 'published_at' => null]);
+        return $this->success($informativo->fresh());
+    }
+
+    public function schedule(Request $request, Informativo $informativo)
+    {
+        $data = $request->validate([
+            'publish_at' => ['required','date']
+        ]);
+        $informativo->update([
+            'status' => 'agendado',
+            'publish_at' => $data['publish_at'],
+            'rejection_reason' => null,
+        ]);
         return $this->success($informativo->fresh());
     }
 

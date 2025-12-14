@@ -6,7 +6,10 @@ use App\Http\Requests\Api\ApiRequest;
 
 class UpdateCourseRequest extends ApiRequest
 {
-    public function authorize(): bool { return true; }
+    public function authorize(): bool {
+        $user = $this->user();
+        return $user && method_exists($user, 'hasRole') && $user->hasRole('admin');
+    }
     public function rules(): array
     {
         return [
