@@ -22,4 +22,19 @@ class ApiRequest extends FormRequest
 
         throw new HttpResponseException($response);
     }
+
+    protected function failedAuthorization()
+    {
+        $response = $this->error(
+            'Sem permissão para executar esta ação.',
+            'FORBIDDEN',
+            [
+                'path' => $this->path(),
+                'params' => $this->route()?->parameters() ?? [],
+                'user_id' => optional($this->user())->id,
+            ],
+            403
+        );
+        throw new HttpResponseException($response);
+    }
 }

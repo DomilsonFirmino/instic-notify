@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -86,4 +87,23 @@ return Application::configure(basePath: dirname(__DIR__))
             }
             return null; // fall back to default handler for non-JSON requests
         });
+
+            // Standardized JSON for authorization failures (403)
+            $exceptions->render(function (AuthorizationException $e, $request) {
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => [
+                            'code' => 'FORBIDDEN',
+                            'message' => $e->getMessage() ?: 'Sem permissão para executar esta ação.',
+                            'details' => [
+                                'path' => $request->path(),
+                                'params' => $request->route()?->parameters() ?? [],
+                                'user_id' => optional($request->user())->id,
+                            ],
+                        ],
+                    ], 403);
+                }
+                return null; // fall back to default handler for non-JSON requests
+            });
     })->create();

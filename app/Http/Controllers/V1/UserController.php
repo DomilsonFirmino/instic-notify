@@ -103,6 +103,11 @@ class UserController extends ApiController
             return $this->error('Usuário não encontrado.', 'NOT_FOUND', [], 404);
         }
 
+        // Invalidate all API tokens for the user (Sanctum)
+        if (method_exists($user, 'tokens')) {
+            $user->tokens()->delete();
+        }
+
         $user->delete();
         return $this->success(['message' => "User with ID: $id deleted"],[], 200);
     }
