@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api\V1;
 
 use App\Http\Requests\Api\ApiRequest;
+use Illuminate\Validation\Rule;
 
 class StoreInformativoRequest extends ApiRequest
 {
@@ -12,7 +13,17 @@ class StoreInformativoRequest extends ApiRequest
     public function rules(): array
     {
         return [
-            'title' => ['required','string','max:255'],
+            // Avoid duplicated informativos by unique title within the same audience scope
+            // Scope uniqueness by optional course/year/department to allow global vs targeted items
+            'title' => [
+                'required','string','max:255',
+                Rule::unique('informativos','title')
+                    ->where(function ($query) {
+                        $query->where('course_id', $this->input('course_id'))
+                              ->where('year_id', $this->input('year_id'))
+                              ->where('department_id', $this->input('department_id'));
+                    })
+            ],
             'content' => ['required','string'],
             'status' => ['required','string','in:rascunho,pendente,revisao,aprovado,agendado,publicado,despublicado,rejeitado'],
             'category_id' => ['required','integer','exists:categories,id'],
@@ -24,6 +35,8 @@ class StoreInformativoRequest extends ApiRequest
             'publish_at' => ['nullable','date'],
             'published_at' => ['nullable','date'],
             'unpublished_at' => ['nullable','date'],
+            // Alias accepted for client convenience, will be mapped in controller
+            'unpublish_at' => ['nullable','date'],
         ];
     }
 }

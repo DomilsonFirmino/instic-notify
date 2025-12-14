@@ -45,6 +45,11 @@ class InformativoController extends ApiController
     public function store(StoreInformativoRequest $request)
     {
         $data = $request->validated();
+        // Support alias field 'unpublish_at' by mapping to 'unpublished_at'
+        if (array_key_exists('unpublish_at', $data) && !array_key_exists('unpublished_at', $data)) {
+            $data['unpublished_at'] = $data['unpublish_at'];
+            unset($data['unpublish_at']);
+        }
         // Create via the user's authored relationship (sets author_id automatically)
         // Ensure initial status is only 'rascunho' or 'pendente'
         if (!in_array($data['status'] ?? 'rascunho', ['rascunho','pendente'], true)) {
