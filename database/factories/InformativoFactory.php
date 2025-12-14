@@ -16,7 +16,7 @@ class InformativoFactory extends Factory
 
     public function definition(): array
     {
-        $status = $this->faker->randomElement(['draft','review','published','rejected']);
+        $status = $this->faker->randomElement(['rascunho','revisao','publicado','rejeitado']);
         return [
             'title' => $this->faker->sentence(6),
             'content' => $this->faker->paragraphs(3, true),
@@ -25,9 +25,9 @@ class InformativoFactory extends Factory
             'course_id' => $this->faker->boolean(60) ? Course::factory() : null,
             'year_id' => $this->faker->boolean(60) ? Year::factory() : null,
             'author_id' => User::factory(),
-            'published_by' => $status === 'published' ? User::factory() : null,
-            'published_at' => $status === 'published' ? now() : null,
-            'rejection_reason' => $status === 'rejected' ? $this->faker->sentence() : null,
+            'published_by' => $status === 'publicado' ? User::factory() : null,
+            'published_at' => $status === 'publicado' ? now() : null,
+            'rejection_reason' => $status === 'rejeitado' ? $this->faker->sentence() : null,
         ];
     }
 }

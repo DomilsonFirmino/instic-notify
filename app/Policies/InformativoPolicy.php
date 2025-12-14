@@ -10,6 +10,11 @@ class InformativoPolicy
     /**
      * Determine if the user can transition an Informativo to target status.
      */
+    public function create(User $user, Informativo $informativo): bool
+    {
+        // Any user with 'informativos.create' permission can create an Informativo
+        return $user->can('informativos.create') || ($user->can('informativos.create_own') && $user->id === $informativo->author_id);
+    }
     public function updateStatus(User $user, Informativo $informativo, string $to): bool
     {
         // Publishers: agendado, publicado, despublicado

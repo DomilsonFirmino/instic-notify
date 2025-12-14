@@ -24,6 +24,7 @@ return new class extends Migration {
             $table->foreignId('category_id')->constrained('categories')->cascadeOnUpdate()->restrictOnDelete();
             $table->foreignId('course_id')->nullable()->constrained('courses')->cascadeOnUpdate()->nullOnDelete();
             $table->foreignId('year_id')->nullable()->constrained('years')->cascadeOnUpdate()->nullOnDelete();
+            $table->foreignId('department_id')->nullable()->constrained('departments')->cascadeOnUpdate()->nullOnDelete();
             $table->foreignId('author_id')->constrained('users')->cascadeOnUpdate()->restrictOnDelete();
             $table->foreignId('published_by')->nullable()->constrained('users')->cascadeOnUpdate()->nullOnDelete();
             $table->timestamp('published_at')->nullable();

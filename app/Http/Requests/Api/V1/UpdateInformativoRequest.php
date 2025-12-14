@@ -12,10 +12,14 @@ class UpdateInformativoRequest extends ApiRequest
         return [
             'title' => ['sometimes','required','string','max:255'],
             'content' => ['sometimes','required','string'],
-            'status' => ['sometimes','required','string'],
+            'status' => ['sometimes','required','string','in:rascunho,pendente,revisao,aprovado,agendado,publicado,despublicado,rejeitado'],
             'category_id' => ['sometimes','required','integer','exists:categories,id'],
             'course_id' => ['nullable','integer','exists:courses,id'],
             'year_id' => ['nullable','integer','exists:years,id'],
+            'department_id' => ['nullable','integer','exists:departments,id'],
+            'publish_at' => ['nullable','date'],
+            'published_at' => ['nullable','date'],
+            'unpublished_at' => ['nullable','date'],
         ];
     }
 }

@@ -14,7 +14,20 @@ class InformativoController extends ApiController
 
     public function index(Request $request)
     {
-        $query = Informativo::query()->with(['category','course','year','author','publisher']);
+        $query = Informativo::query()->with(['category','course','year','department','author','publisher']);
+
+        $auth = $request->user();
+        if ($auth && ($auth->role ?? null) === 'leitor') {
+            $query->where(function($q) use ($auth) {
+                $q->whereNull('course_id')->orWhere('course_id', $auth->course_id);
+            });
+            $query->where(function($q) use ($auth) {
+                $q->whereNull('year_id')->orWhere('year_id', $auth->year_id);
+            });
+            $query->where(function($q) use ($auth) {
+                $q->whereNull('department_id')->orWhere('department_id', $auth->department_id);
+            });
+        }
 
         $paginator = $query->paginate();
         $meta = [
