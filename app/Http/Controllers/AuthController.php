@@ -33,9 +33,11 @@ class AuthController extends ApiController
 
     public function destroy(Request $request)
     {
+        $data = $request->user();
         $request->user()->currentAccessToken()->delete();
         return $this->success([
-            'message' => 'Logged out successfully'
+            'message' => 'Logged out successfully',
+            'user' => $data->only(['id', 'name', 'email', 'role']),
         ], [], 200);
     }
 }

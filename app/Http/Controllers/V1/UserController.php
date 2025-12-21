@@ -39,13 +39,13 @@ class UserController extends ApiController
         $auth = request()->user();
         $isAdmin = $auth->hasRole('admin');
         $isSelf = $auth && (string)$auth->id === (string)$id;
-        if (!($isAdmin || $isSelf)) {
-            return $this->error('Acesso negado a este recurso.', 'FORBIDDEN', [], 403);
-        }
 
         try {
             $user = User::with('course', 'year', 'department')->findOrFail($id);
-            return $this->success($user, [], 200);
+            if($isAdmin || $isSelf || $user->role === 'leitor') {
+                return $this->success($user, [], 200);
+            }
+            return $this->error('Acesso negado a este recurso.', 'FORBIDDEN', [], 403);
         } catch (ModelNotFoundException $e) {
             return $this->error('Usuário não encontrado.', 'NOT_FOUND', [], 404);
         }
@@ -109,7 +109,10 @@ class UserController extends ApiController
         }
 
         $user->delete();
-        return $this->success(['message' => "User with ID: $id deleted"],[], 200);
+        return $this->success([
+            'message' => "User with deleted",
+            'user' => $user->only(['id', 'name', 'email', 'role'])
+        ],[], 200);
     }
 
     public function favorites($id)
