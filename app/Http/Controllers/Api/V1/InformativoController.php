@@ -155,7 +155,8 @@ class InformativoController extends ApiController
     public function schedule(Request $request, Informativo $informativo)
     {
         $data = $request->validate([
-            'publish_at' => ['required','date']
+            'publish_at' => ['required','date'],
+            'unpublished_at' => ['nullable','date','after:publish_at'],
         ]);
         $auth = $request->user();
         // Allow setting publish_at only when approved; by reviewer or author
@@ -166,15 +167,19 @@ class InformativoController extends ApiController
         if ($informativo->status !== 'aprovado') {
             return $this->error('Agendamento apenas quando o informativo está aprovado.', 'UNPROCESSABLE', [], 422);
         }
-        $informativo->update([
+        $updateData = [
             'publish_at' => $data['publish_at'],
             'rejection_reason' => null,
-        ]);
+        ];
+        if (array_key_exists('unpublished_at', $data)) {
+            $updateData['unpublished_at'] = $data['unpublished_at'];
+        }
+        $informativo->update($updateData);
 
         Log::create([
             'user_id' => $auth->id,
             'action' => 'informativo.schedule',
-            'description' => 'Publicação agendada para Informativo ID '.$informativo->id.' em '.$data['publish_at'],
+            'description' => 'Publicação agendada para Informativo ID '.$informativo->id.' em '.$data['publish_at'].($data['unpublished_at'] ? (', despublicação em '.$data['unpublished_at']) : ''),
             'created_at' => now(),
         ]);
         return $this->success($informativo->fresh());
@@ -210,12 +215,18 @@ class InformativoController extends ApiController
         if ($informativo->status !== 'pendente') {
             return $this->error('Aprovação apenas em itens pendentes.', 'UNPROCESSABLE', [], 422);
         }
-        $informativo->update(['status' => 'aprovado', 'rejection_reason' => null]);
+        // Ao aprovar, define publish_at para amanhã se não estiver definido
+        $publishAt = $informativo->publish_at ?? now()->addDay();
+        $informativo->update([
+            'status' => 'aprovado',
+            'rejection_reason' => null,
+            'publish_at' => $publishAt,
+        ]);
 
         Log::create([
             'user_id' => $auth->id,
             'action' => 'informativo.approve',
-            'description' => 'Informativo aprovado ID '.$informativo->id,
+            'description' => 'Informativo aprovado ID '.$informativo->id.' com publicação para '.$publishAt,
             'created_at' => now(),
         ]);
         return $this->success($informativo->fresh());
