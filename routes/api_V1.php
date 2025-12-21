@@ -16,9 +16,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::put('/users/{id}', [UserController::class, 'update']);
     Route::delete('/users/{id}', [UserController::class, 'destroy']);
     Route::get('/users/{id}/favorites', [UserController::class, 'favorites']);
+    Route::get('/users/{id}/favorites/{favoriteId}', [UserController::class, 'showFavorite']);
+    Route::delete('/users/{id}/favorites/{favoriteId}', [UserController::class, 'removeFavorite']);
+    Route::delete('/users/{id}/favorites', [UserController::class, 'removeAllFavorites']);
     Route::get('/users/{id}/notifications', [UserController::class, 'notifications']);
+    Route::get('/users/{id}/notifications/{notificationId}', [UserController::class, 'showNotification']);
     Route::post('/users/{userId}/notifications/{notificationId}/read', [UserController::class, 'markNotificationAsRead']);
-    Route::post('/users/notifications/mark-all-read', [UserController::class, 'markAllNotificationsAsRead']);
+    Route::post('/users/{userId}/notifications', [UserController::class, 'markAllNotificationsAsRead']);
 
     // Apply admin-only middleware to specific resource actions via associative map
 

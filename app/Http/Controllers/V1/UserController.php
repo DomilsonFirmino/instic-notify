@@ -62,6 +62,12 @@ class UserController extends ApiController
     }
     public function update(UpdateUserRequest $request, $id)
     {
+        $auth = $request->user();
+        $isAdmin = $auth && method_exists($auth, 'hasRole') && $auth->hasRole('admin');
+        $isSelf = $auth && (string)$auth->id === (string)$id;
+        if (!($isAdmin || $isSelf)) {
+            return $this->error('Acesso negado à atualização deste usuário.', 'FORBIDDEN', [], 403);
+        }
         try {
             $user = User::findOrFail($id);
         } catch (ModelNotFoundException $e) {
@@ -71,8 +77,6 @@ class UserController extends ApiController
         $data = $request->validated();
 
         // Only admins can change role; otherwise strip it
-        $auth = $request->user();
-        $isAdmin = $auth && method_exists($auth, 'hasRole') && $auth->hasRole('admin');
         if (!$isAdmin) {
             unset($data['role']);
         }
@@ -117,53 +121,131 @@ class UserController extends ApiController
 
     public function favorites($id)
     {
+        $auth = request()->user();
+        if ((string)$auth->id !== (string)$id && !$auth->hasRole('admin')) {
+            return $this->error('Acesso negado aos favoritos de outro usuário.', 'FORBIDDEN', [], 403);
+        }
         try {
             $user = User::findOrFail($id);
         } catch (ModelNotFoundException $e) {
             return $this->error('Usuário não encontrado.', 'NOT_FOUND', [], 404);
         }
-        $favorites = $user->favorites; // Assuming a 'favorites' relationship exists in User model
+        $favorites = $user->favorites;
         return $this->success($favorites,[],200);
     }
 
     public function notifications($id)
     {
+        $auth = request()->user();
+        if ((string)$auth->id !== (string)$id && !$auth->hasRole('admin')) {
+            return $this->error('Acesso negado às notificações de outro usuário.', 'FORBIDDEN', [], 403);
+        }
         try {
             $user = User::findOrFail($id);
         } catch (ModelNotFoundException $e) {
             return $this->error('Usuário não encontrado.', 'NOT_FOUND', [], 404);
         }
-        $notifications = $user->notifications; // Assuming a 'notifications' relationship exists in User model
+        $notifications = $user->notifications;
         return $this->success($notifications,[],200);
+    }
+
+    public function showFavorite($userId, $favoriteId)
+    {
+        $auth = request()->user();
+        if ((string)$auth->id !== (string)$userId && !$auth->hasRole('admin')) {
+            return $this->error('Acesso negado ao favorito de outro usuário.', 'FORBIDDEN', [], 403);
+        }
+        $favorite = \App\Models\Favorite::where('user_id', $userId)->where('id', $favoriteId)->first();
+        if (!$favorite) {
+            return $this->error('Favorito não encontrado.', 'NOT_FOUND', [], 404);
+        }
+        return $this->success($favorite,[],200);
+    }
+
+    public function removeFavorite($userId, $favoriteId)
+    {
+        $auth = request()->user();
+        if ((string)$auth->id !== (string)$userId && !$auth->hasRole('admin')) {
+            return $this->error('Acesso negado ao favorito de outro usuário.', 'FORBIDDEN', [], 403);
+        }
+        $favorite = \App\Models\Favorite::where('user_id', $userId)->where('id', $favoriteId)->first();
+        if (!$favorite) {
+            return $this->error('Favorito não encontrado.', 'NOT_FOUND', [], 404);
+        }
+        // Permitir apenas se o usuário for dono do favorito ou admin
+        if ((string)$auth->id !== (string)$favorite->user_id && !$auth->hasRole('admin')) {
+            return $this->error('Sem permissão para remover este favorito.', 'FORBIDDEN', [], 403);
+        }
+        $favorite->delete();
+        return $this->success(['deleted' => true],[],200);
+    }
+
+    public function removeAllFavorites($userId)
+    {
+        $auth = request()->user();
+        if ((string)$auth->id !== (string)$userId && !$auth->hasRole('admin')) {
+            return $this->error('Acesso negado aos favoritos de outro usuário.', 'FORBIDDEN', [], 403);
+        }
+        // Permitir apenas se o usuário for dono dos favoritos ou admin
+        $deleted = 0;
+        if ((string)$auth->id === (string)$userId || $auth->hasRole('admin')) {
+            $deleted = \App\Models\Favorite::where('user_id', $userId)->delete();
+        }
+        return $this->success(['deleted_count' => $deleted],[],200);
+    }
+
+    public function showNotification($userId, $notificationId)
+    {
+        $auth = request()->user();
+        if ((string)$auth->id !== (string)$userId && !$auth->hasRole('admin')) {
+            return $this->error('Acesso negado à notificação de outro usuário.', 'FORBIDDEN', [], 403);
+        }
+        $notification = \App\Models\Notification::where('user_id', $userId)->where('id', $notificationId)->first();
+        if (!$notification) {
+            return $this->error('Notificação não encontrada.', 'NOT_FOUND', [], 404);
+        }
+        return $this->success($notification,[],200);
     }
 
     public function markNotificationAsRead($userId, $notificationId)
     {
+        $auth = request()->user();
+        if ((string)$auth->id !== (string)$userId && !$auth->hasRole('admin')) {
+            return $this->error('Acesso negado à notificação de outro usuário.', 'FORBIDDEN', [], 403);
+        }
         try {
             $user = User::findOrFail($userId);
         } catch (ModelNotFoundException $e) {
             return $this->error('Usuário não encontrado.', 'NOT_FOUND', [], 404);
         }
         $notification = $user->notifications()->where('id', $notificationId)->first();
-
         if ($notification) {
+            // Permitir apenas se o usuário for dono da notificação ou admin
+            if ((string)$auth->id !== (string)$userId && !$auth->hasRole('admin')) {
+                return $this->error('Sem permissão para marcar como lida.', 'FORBIDDEN', [], 403);
+            }
             $notification->read_at = now();
             $notification->save();
             return $this->success($notification,[],200);
         }
-
         return response()->json(['message' => 'Notification not found'], 404);
     }
 
     public function markAllNotificationsAsRead($userId)
     {
+        $auth = request()->user();
+        if ((string)$auth->id !== (string)$userId && !$auth->hasRole('admin')) {
+            return $this->error('Acesso negado às notificações de outro usuário.', 'FORBIDDEN', [], 403);
+        }
         try {
             $user = User::findOrFail($userId);
         } catch (ModelNotFoundException $e) {
             return $this->error('Usuário não encontrado.', 'NOT_FOUND', [], 404);
         }
-        $user->notifications()->whereNull('read_at')->update(['read_at' => now()]);
-
+        // Permitir apenas se o usuário for dono das notificações ou admin
+        if ((string)$auth->id === (string)$userId || $auth->hasRole('admin')) {
+            $user->notifications()->whereNull('read_at')->update(['read_at' => now()]);
+        }
         return response()->json(['message' => 'All notifications marked as read'], 200);
     }
 }
