@@ -12,7 +12,16 @@ class CourseController extends Controller
 {
     use ApiResponseTrait;
 
-    public function index() { return $this->success(Course::with('department')->paginate()); }
+    public function index() {
+        $courses = Course::paginate();
+        $meta = [
+            'current_page' => $courses->currentPage(),
+            'per_page' => $courses->perPage(),
+            'total' => $courses->total(),
+            'last_page' => $courses->lastPage(),
+        ];
+        return $this->success($courses->items(), $meta, 200);
+    }
     public function store(StoreCourseRequest $request) { $course = Course::create($request->validated()); return $this->success($course, status:201); }
     public function show(Course $course) { $course->load('department'); return $this->success($course); }
     public function update(UpdateCourseRequest $request, Course $course) { $course->update($request->validated()); return $this->success($course); }

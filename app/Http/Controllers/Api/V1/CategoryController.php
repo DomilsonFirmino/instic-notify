@@ -11,7 +11,14 @@ class CategoryController extends ApiController
 {
     public function index()
     {
-        return $this->success(Category::query()->paginate());
+        $category = Category::paginate();
+        $meta = [
+            'current_page' => $category->currentPage(),
+            'per_page' => $category->perPage(),
+            'total' => $category->total(),
+            'last_page' => $category->lastPage(),
+        ];
+        return $this->success($category->items(), $meta, 200);
     }
 
     public function store(StoreCategoryRequest $request)

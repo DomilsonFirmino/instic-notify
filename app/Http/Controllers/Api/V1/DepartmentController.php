@@ -10,7 +10,16 @@ use App\Models\Department;
 class DepartmentController extends ApiController
 {
 
-    public function index() { return $this->success(Department::query()->paginate()); }
+    public function index() {
+        $departments = Department::paginate();
+        $meta = [
+            'current_page' => $departments->currentPage(),
+            'per_page' => $departments->perPage(),
+            'total' => $departments->total(),
+            'last_page' => $departments->lastPage(),
+        ];
+        return $this->success($departments->items(),$meta,200);
+    }
     public function store(StoreDepartmentRequest $request)
     {
         $dep = Department::create($request->validated());

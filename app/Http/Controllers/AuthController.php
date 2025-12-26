@@ -5,17 +5,14 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Http\Requests\Api\AuthStoreRequest;
 
 class AuthController extends ApiController
 {
-    public function store(Request $request)
+    public function store(AuthStoreRequest $request)
     {
-        $validatedData = $request->validate([
-            'email' => ['required', 'string', 'email'],
-            'password' => ['required', 'string'],
-        ]);
-
-        $user = User::where('email', $request->email)->first();
+        $validatedData = $request->validated();
+        $user = User::where('email', $validatedData['email'])->first();
 
         if(!Auth::attempt($validatedData)) {
             return $this->error('Login failed. Please check your credentials.', [], 401);
@@ -23,8 +20,6 @@ class AuthController extends ApiController
 
         $token = $user->createToken($user->name)->plainTextToken;
 
-
-        // Implement login logic here
         return $this->success([
             'user' => $user->load('course', 'year', 'department')->only(['id', 'name', 'email', 'role']),
             'token' => $token,
