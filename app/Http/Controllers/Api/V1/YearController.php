@@ -12,7 +12,16 @@ class YearController extends Controller
 {
     use ApiResponseTrait;
 
-    public function index() { return $this->success(Year::query()->paginate()); }
+    public function index() {
+        $years = Year::paginate();
+        $meta = [
+            'current_page' => $years->currentPage(),
+            'per_page' => $years->perPage(),
+            'total' => $years->total(),
+            'last_page' => $years->lastPage(),
+        ];
+        return $this->success($years->items(), $meta,200);
+    }
     public function store(StoreYearRequest $request) { $year = Year::create($request->validated()); return $this->success($year, status:201); }
     public function show(Year $year) { return $this->success($year); }
     public function update(UpdateYearRequest $request, Year $year) { $year->update($request->validated()); return $this->success($year); }

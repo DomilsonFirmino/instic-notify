@@ -24,12 +24,24 @@ class UserController extends ApiController
         $role = $auth->role ?? null;
         if ($role === 'admin') {
             $users = User::query()->paginate();
-            return $this->success($users, [], 200);
+            $meta = [
+                'current_page' => $users->currentPage(),
+                'per_page' => $users->perPage(),
+                'total' => $users->total(),
+                'last_page' => $users->lastPage(),
+            ];
+            return $this->success($users->items(), $meta, 200);
         }
 
         if ($role === 'leitor') {
             $users = User::query()->where('role', 'leitor')->paginate();
-            return $this->success($users, [], 200);
+            $meta = [
+                'current_page' => $users->currentPage(),
+                'per_page' => $users->perPage(),
+                'total' => $users->total(),
+                'last_page' => $users->lastPage(),
+            ];
+            return $this->success($users->items(), $meta, 200);
         }
 
         return $this->error('Acesso negado a esta listagem.', 'FORBIDDEN', [], 403);
