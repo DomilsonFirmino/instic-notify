@@ -12,8 +12,13 @@ class DepartmentFactory extends Factory
 
     public function definition(): array
     {
+        $names = [
+            'Engenharia Informatica',
+            'Telecomunicações',
+            'Informatica de Gestão',
+        ];
         return [
-            'name' => $this->faker->unique()->company(),
+            'name' => $this->faker->unique()->randomElement($names),
         ];
     }
 }

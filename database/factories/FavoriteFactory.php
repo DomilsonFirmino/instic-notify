@@ -15,8 +15,14 @@ class FavoriteFactory extends Factory
     public function definition(): array
     {
         return [
-            'user_id' => User::factory(),
-            'informativo_id' => Informativo::factory(),
+            'user_id' => function () {
+                $user = \App\Models\User::inRandomOrder()->first();
+                return $user ? $user->id : \App\Models\User::factory()->create()->id;
+            },
+            'informativo_id' => function () {
+                $inf = \App\Models\Informativo::inRandomOrder()->first();
+                return $inf ? $inf->id : \App\Models\Informativo::factory()->create()->id;
+            },
             'created_at' => now(),
         ];
     }

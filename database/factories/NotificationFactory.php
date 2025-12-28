@@ -15,7 +15,10 @@ class NotificationFactory extends Factory
     {
         $read = $this->faker->boolean(50);
         return [
-            'user_id' => User::factory(),
+            'user_id' => function () {
+                $user = \App\Models\User::inRandomOrder()->first();
+                return $user ? $user->id : \App\Models\User::factory()->create()->id;
+            },
             'title' => $this->faker->sentence(4),
             'message' => $this->faker->paragraph(2, true),
             'read_at' => $read ? now() : null,

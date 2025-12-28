@@ -14,7 +14,10 @@ class InformativoFileFactory extends Factory
     public function definition(): array
     {
         return [
-            'informativo_id' => Informativo::factory(),
+            'informativo_id' => function () {
+                $inf = \App\Models\Informativo::inRandomOrder()->first();
+                return $inf ? $inf->id : \App\Models\Informativo::factory()->create()->id;
+            },
             'path' => 'uploads/'.$this->faker->uuid().'.pdf',
             'original_name' => $this->faker->words(2, true).'.pdf',
             'size' => (string) $this->faker->numberBetween(10, 500).'KB',

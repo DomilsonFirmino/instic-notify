@@ -112,21 +112,35 @@ class DatabaseSeeder extends Seeder
             $viewerRole->syncPermissions($viewerPermissions);
 
             // Estrutura básica
-            // Departamentos fixos
+            // Departamentos fixos e únicos
             $departments = collect([
                 ['name' => 'Engenharia Informatica'],
                 ['name' => 'Telecomunicações'],
                 ['name' => 'Informatica de Gestão'],
             ])->map(function ($data) {
-                return Department::firstOrCreate($data);
+                return Department::updateOrCreate($data, $data);
             });
 
-            // Anos limitados a 5
+            // Cursos fixos e únicos, vinculados ao departamento de mesmo nome
+            $courses = collect([
+                'Engenharia Informatica',
+                'Telecomunicações',
+                'Informatica de Gestão',
+            ])->map(function ($name) use ($departments) {
+                $department = $departments->first(function ($dep) use ($name) {
+                    return $dep->name === $name;
+                });
+                return Course::updateOrCreate(
+                    ['name' => $name],
+                    ['name' => $name, 'department_id' => $department ? $department->id : null]
+                );
+            });
+
+            // Anos de 1 a 5, únicos
             $years = collect(range(1, 5))->map(function ($num) {
-                return Year::firstOrCreate(['name' => (string)$num]);
+                return Year::updateOrCreate(['name' => (string)$num], ['name' => (string)$num]);
             });
 
-            $courses = Course::factory()->count(5)->create();
             $categories = Category::factory()->count(5)->create();
 
             // Usuários de exemplo (precisam de course_id e year_id)

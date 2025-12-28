@@ -21,11 +21,32 @@ class InformativoFactory extends Factory
             'title' => $this->faker->sentence(6),
             'content' => $this->faker->paragraphs(3, true),
             'status' => $status,
-            'category_id' => Category::factory(),
-            'course_id' => $this->faker->boolean(60) ? Course::factory() : null,
-            'year_id' => $this->faker->boolean(60) ? Year::factory() : null,
-            'author_id' => User::factory(),
-            'published_by' => $status === 'publicado' ? User::factory() : null,
+            'category_id' => function () {
+                $cat = Category::inRandomOrder()->first();
+                return $cat ? $cat->id : Category::factory()->create()->id;
+            },
+            'course_id' => function () {
+                $course = Course::inRandomOrder()->first();
+                return $course ? $course->id : Course::whereIn('name', ['Engenharia Informatica','Telecomunicações','Informatica de Gestão'])->inRandomOrder()->first()->id;
+            },
+            'year_id' => function () {
+                $year = Year::inRandomOrder()->first();
+                if ($year) return $year->id;
+                // If no year exists, ensure we create the 5 allowed years first
+                foreach (['1','2','3','4','5'] as $n) {
+                    Year::firstOrCreate(['name' => $n]);
+                }
+                return Year::inRandomOrder()->first()->id;
+            },
+            'author_id' => function () {
+                $user = User::inRandomOrder()->first();
+                return $user ? $user->id : User::factory()->create()->id;
+            },
+            'published_by' => function () use ($status) {
+                if ($status !== 'publicado') return null;
+                $user = User::inRandomOrder()->first();
+                return $user ? $user->id : User::factory()->create()->id;
+            },
             'published_at' => $status === 'publicado' ? now() : null,
             'rejection_reason' => $status === 'rejeitado' ? $this->faker->sentence() : null,
         ];

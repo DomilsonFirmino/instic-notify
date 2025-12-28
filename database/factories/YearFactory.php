@@ -12,8 +12,9 @@ class YearFactory extends Factory
 
     public function definition(): array
     {
+        $anos = ['1', '2', '3', '4', '5'];
         return [
-            'name' => $this->faker->randomElement(['1º Ano', '2º Ano', '3º Ano', '4º Ano']),
+            'name' => $this->faker->randomElement($anos),
         ];
     }
 }

@@ -14,7 +14,10 @@ class LogFactory extends Factory
     public function definition(): array
     {
         return [
-            'user_id' => User::factory(),
+            'user_id' => function () {
+                $user = \App\Models\User::inRandomOrder()->first();
+                return $user ? $user->id : \App\Models\User::factory()->create()->id;
+            },
             'action' => $this->faker->randomElement(['create','update','publish','reject','delete']),
             'description' => $this->faker->sentence(),
             'created_at' => now(),

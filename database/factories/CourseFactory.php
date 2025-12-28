@@ -13,9 +13,17 @@ class CourseFactory extends Factory
 
     public function definition(): array
     {
-        return [
-            'name' => $this->faker->unique()->jobTitle(),
-            'department_id' => Department::factory(),
+        $names = [
+            'Engenharia Informatica',
+            'Telecomunicações',
+            'Informatica de Gestão',
         ];
+        $name = $this->faker->randomElement($names);
+        $department = Department::where('name', $name)->first();
+        return [
+            'name' => $name,
+            'department_id' => $department ? $department->id : null,
+        ];
+
     }
 }
