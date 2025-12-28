@@ -10,5 +10,9 @@ class StoreYearRequest extends ApiRequest
         $user = $this->user();
         return $user && method_exists($user, 'hasRole') && $user->hasRole('admin');
     }
-    public function rules(): array { return ['name' => ['required','string','max:255']]; }
+    public function rules(): array {
+        return [
+            'name' => ['required', 'string', 'max:255', 'unique:years,name'],
+        ];
+    }
 }

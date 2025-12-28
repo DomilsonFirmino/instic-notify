@@ -112,8 +112,20 @@ class DatabaseSeeder extends Seeder
             $viewerRole->syncPermissions($viewerPermissions);
 
             // Estrutura básica
-            $departments = Department::factory()->count(3)->create();
-            $years = Year::factory()->count(4)->create();
+            // Departamentos fixos
+            $departments = collect([
+                ['name' => 'Engenharia Informatica'],
+                ['name' => 'Telecomunicações'],
+                ['name' => 'Informatica de Gestão'],
+            ])->map(function ($data) {
+                return Department::firstOrCreate($data);
+            });
+
+            // Anos limitados a 5
+            $years = collect(range(1, 5))->map(function ($num) {
+                return Year::firstOrCreate(['name' => (string)$num]);
+            });
+
             $courses = Course::factory()->count(5)->create();
             $categories = Category::factory()->count(5)->create();
 
