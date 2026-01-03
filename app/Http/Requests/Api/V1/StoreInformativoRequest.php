@@ -33,9 +33,6 @@ class StoreInformativoRequest extends ApiRequest
             // author_id is always set from authenticated user
             'author_id' => ['prohibited'],
             'publish_at' => ['nullable','date'],
-            'published_at' => ['nullable','date'],
-            'unpublished_at' => ['nullable','date'],
-            // Alias accepted for client convenience, will be mapped in controller
             'unpublish_at' => ['nullable','date'],
         ];
     }

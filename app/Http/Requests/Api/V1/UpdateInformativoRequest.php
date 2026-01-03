@@ -18,7 +18,6 @@ class UpdateInformativoRequest extends ApiRequest
             'year_id' => ['nullable','integer','exists:years,id'],
             'department_id' => ['nullable','integer','exists:departments,id'],
             'publish_at' => ['nullable','date'],
-            'published_at' => ['nullable','date'],
             'unpublished_at' => ['nullable','date'],
         ];
     }

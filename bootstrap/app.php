@@ -116,7 +116,7 @@ return Application::configure(basePath: dirname(__DIR__))
                         'success' => false,
                         'error' => [
                             'code' => 'FORBIDDEN',
-                            'message' => $e->getMessage() ?: 'User does not have the right roles.',
+                            'message' => $e->getMessage() ?: 'Usuario não possui as permissões necessárias.',
                             'details' => [
                                 'path' => $request->path(),
                                 'params' => $request->route()?->parameters() ?? [],
@@ -127,4 +127,22 @@ return Application::configure(basePath: dirname(__DIR__))
                 }
                 return null; // fall back to default handler for non-JSON requests
             });
+
+        // Handle database connection errors (PDOException)
+        $exceptions->render(function (PDOException $e, $request) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => [
+                        'code' => 'DB_CONNECTION_ERROR',
+                        'message' => 'Database is not available',
+                        'details' => [
+                            'exception' => class_basename($e),
+                            'message' => $e->getMessage(),
+                        ],
+                    ],
+                ], 503);
+            }
+            return null; // fall back to default handler for non-JSON requests
+        });
     })->create();

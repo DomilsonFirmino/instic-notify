@@ -11,25 +11,62 @@ use App\Models\Log;
 use App\Models\Notification as UserNotification;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log as FacadeLog;
 
 class InformativoController extends ApiController
 {
 
+    public function statusOptions()
+    {
+        $options = [
+            'rascunho',      // Em edição pelo autor
+            'pendente',      // Enviado para revisão
+            'revisao',       // Precisa de correção
+            'aprovado',      // Aprovado, aguardando publicação
+            'agendado',      // Publicação programada
+            'publicado',     // Já está visível
+            'despublicado',  // Foi retirado do ar
+            'rejeitado'      // Recusado definitivamente
+        ];
+        return $this->success($options);
+    }
+
     public function index(Request $request)
     {
-        $query = Informativo::query()->with(['category','course','year','department','author','publisher','reviews']);
-
         $auth = $request->user();
-        if ($auth && ($auth->role ?? null) === 'leitor') {
-            $query->where(function($q) use ($auth) {
-                $q->whereNull('course_id')->orWhere('course_id', $auth->course_id);
-            });
-            $query->where(function($q) use ($auth) {
-                $q->whereNull('year_id')->orWhere('year_id', $auth->year_id);
-            });
-            $query->where(function($q) use ($auth) {
-                $q->whereNull('department_id')->orWhere('department_id', $auth->department_id);
-            });
+        $userRole = $auth->role ?? "leitor";
+        $with = ['category','course','year','department'];
+        if ($userRole !== 'leitor') {
+            $with[] = 'reviews';
+            $with[] = 'author';
+            $with[] = 'publisher';
+        }
+        $query = Informativo::query()->with($with);
+
+
+        switch ($userRole) {
+            case 'leitor':
+                $query->where('status', 'publicado');
+                // $query->where(function($q) use ($auth) {
+                //     $q->whereNull('course_id')->orWhere('course_id', $auth->course_id);
+                // });
+                // $query->where(function($q) use ($auth) {
+                //     $q->whereNull('year_id')->orWhere('year_id', $auth->year_id);
+                // });
+                // $query->where(function($q) use ($auth) {
+                //     $q->whereNull('department_id')->orWhere('department_id', $auth->department_id);
+                // });
+                break;
+            case 'revisor':
+                $query->where('status', 'pendente')
+                ->orWhere('status', 'aprovado')
+                ->orWhere('status', 'agendado')
+                ->orWhere('status', 'publicado');
+                break;
+            // Adicione outros cases para outros roles se necessário
+            default:
+                // Nenhum filtro extra para outros roles
+                break;
         }
 
         $paginator = $query->paginate();
@@ -101,7 +138,7 @@ class InformativoController extends ApiController
         }
 
         // Reviewer can only edit when status is pendente
-        if ($auth && $auth->hasRole('revisor')) {
+        if ($auth && ($auth->hasRole('revisor'))) {
             if ($informativo->status !== 'pendente') {
                 return $this->error('O revisor só pode editar informativos pendentes.', 'FORBIDDEN', [], 403);
             }
@@ -116,12 +153,21 @@ class InformativoController extends ApiController
         }
 
         // Author can edit only when status is rascunho or revisao
-        $isAuthor = $auth && $auth->id === $informativo->author_id;
-        if (!$isAuthor || !in_array($informativo->status, ['rascunho','revisao'], true)) {
-            return $this->error('O autor só pode editar em rascunho ou revisão.', 'FORBIDDEN', [], 403);
+        $isAuthor = ($auth->id === $informativo->author_id);
+        if(!$isAuthor) {
+            return $this->error('Apenas o autor pode editar o informativo.', 'FORBIDDEN', [], 403);
         }
 
-        $informativo->update($request->validated());
+        if (!in_array($informativo->status, ['rascunho','revisao'], true)) {
+            return $this->error('Só se pode editar em rascunho ou revisão.', 'FORBIDDEN', [], 403);
+        }
+
+        $data = $request->validated();
+        // Se o autor está editando, só pode mudar status para 'rascunho' ou 'pendente'
+        if (isset($data['status']) && !in_array($data['status'], ['rascunho', 'pendente'], true)) {
+            return $this->error('O autor só pode definir o status como rascunho ou pendente.', 'FORBIDDEN', [], 403);
+        }
+        $informativo->update($data);
 
         Log::create([
             'user_id' => $auth->id,
@@ -151,16 +197,17 @@ class InformativoController extends ApiController
     }
 
     // Publishment is performed by scheduler; no manual publish/unpublish endpoints
-
     public function schedule(Request $request, Informativo $informativo)
     {
         $data = $request->validate([
-            'publish_at' => ['required','date'],
-            'unpublished_at' => ['nullable','date','after:publish_at'],
+            'publish_at' => ['nullable','date','after_or_equal:today'],
+            'unpublished_at' => ['nullable','date','after:publish_at','after_or_equal:today'],
         ]);
+
+        FacadeLog::info('Scheduling informativo ID '.$informativo->id.' for publish at '.$data['publish_at']);
         $auth = $request->user();
         // Allow setting publish_at only when approved; by reviewer or author
-        $canSchedule = ($auth && ($auth->hasRole('revisor') || $auth->can('informativos.review') || $auth->id === $informativo->author_id));
+        $canSchedule = (($auth->hasRole('revisor') || $auth->hasRole('admin')));
         if (!$canSchedule) {
             return $this->error('Sem permissão para agendar.', 'FORBIDDEN', [], 403);
         }
@@ -168,11 +215,27 @@ class InformativoController extends ApiController
             return $this->error('Agendamento apenas quando o informativo está aprovado.', 'UNPROCESSABLE', [], 422);
         }
         $updateData = [
-            'publish_at' => $data['publish_at'],
             'rejection_reason' => null,
         ];
+        // Impede atualizar publish_at se já publicado
+        if (array_key_exists('publish_at', $data)) {
+            if ($informativo->status === 'publicado') {
+                return $this->error('Não é possível alterar a data de publicação de um informativo já publicado.', 'FORBIDDEN', [], 403);
+            }
+            $updateData['publish_at'] = $data['publish_at'];
+        }
+        // Impede atualizar unpublished_at se já despublicado
         if (array_key_exists('unpublished_at', $data)) {
+            if ($informativo->status === 'despublicado') {
+                return $this->error('Não é possível alterar a data de despublicação de um informativo já despublicado.', 'FORBIDDEN', [], 403);
+            }
             $updateData['unpublished_at'] = $data['unpublished_at'];
+        }
+        // Se publish_at tem valor, muda status para agendado, senão mantém aprovado
+        if (!empty($data['publish_at'])) {
+            $updateData['status'] = 'agendado';
+        } else {
+            $updateData['status'] = 'aprovado';
         }
         $informativo->update($updateData);
 
@@ -188,7 +251,7 @@ class InformativoController extends ApiController
     public function reject(Request $request, Informativo $informativo)
     {
         $auth = $request->user();
-        if (!$auth || !($auth->hasRole('revisor') || $auth->can('informativos.review'))) {
+        if (!($auth->hasRole('revisor') || $auth->hasRole('admin') || $auth->can('informativos.review'))) {
             return $this->error('Sem permissão para rejeitar.', 'FORBIDDEN', [], 403);
         }
         if ($informativo->status !== 'pendente') {
@@ -209,24 +272,21 @@ class InformativoController extends ApiController
     public function approve(Request $request, Informativo $informativo)
     {
         $auth = $request->user();
-        if (!$auth || !($auth->hasRole('revisor') || $auth->can('informativos.review'))) {
+        if (!($auth->hasRole('revisor') || $auth->hasRole('admin') || $auth->can('informativos.review'))) {
             return $this->error('Sem permissão para aprovar.', 'FORBIDDEN', [], 403);
         }
         if ($informativo->status !== 'pendente') {
             return $this->error('Aprovação apenas em itens pendentes.', 'UNPROCESSABLE', [], 422);
         }
-        // Ao aprovar, define publish_at para amanhã se não estiver definido
-        $publishAt = $informativo->publish_at ?? now()->addDay();
         $informativo->update([
             'status' => 'aprovado',
-            'rejection_reason' => null,
-            'publish_at' => $publishAt,
+            'rejection_reason' => null
         ]);
 
         Log::create([
             'user_id' => $auth->id,
             'action' => 'informativo.approve',
-            'description' => 'Informativo aprovado ID '.$informativo->id.' com publicação para '.$publishAt,
+            'description' => 'Informativo aprovado ID '.$informativo->id,
             'created_at' => now(),
         ]);
         return $this->success($informativo->fresh());
@@ -282,6 +342,10 @@ class InformativoController extends ApiController
 
     public function toggleFavorite(Request $request, Informativo $informativo)
     {
+        // Só permite favoritar se o informativo estiver publicado
+        if ($informativo->status !== 'publicado') {
+            return $this->error('Só é possível favoritar informativos publicados.', 'FORBIDDEN', [], 403);
+        }
         $userId = $request->user()?->id ?? $request->input('user_id');
         $fav = Favorite::where(['user_id'=>$userId,'informativo_id'=>$informativo->id])->first();
         if ($fav) { $fav->delete(); return $this->success(['favorite' => false]); }

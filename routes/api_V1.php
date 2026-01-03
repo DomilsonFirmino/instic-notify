@@ -39,10 +39,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::apiResource('departments', DepartmentController::class)->only(['index', 'show']);
     Route::apiResource('courses', CourseController::class)->only(['index', 'show']);
     Route::apiResource('years', YearController::class)->only(['index', 'show']);
+    Route::get('informativos/status', [InformativoController::class, 'statusOptions'])->middleware('role:admin|editor|revisor');
     Route::apiResource('informativos', InformativoController::class)->only(['index', 'show']);
 
     Route::group(['middleware' => ['role:admin|editor|revisor']],function () {
-        Route::group(['middleware' => ['role:admin|editor']],function () {
+
+
+        Route::group(['middleware' => ['role:admin|revisor']],function () {
             Route::apiResource('informativos', InformativoController::class)->only(['store', 'update', 'destroy']);
             Route::post('informativos/{informativo}/schedule', [InformativoController::class, 'schedule']);
         });
@@ -52,7 +55,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
             Route::post('informativos/{informativo}/approve', [InformativoController::class, 'approve']);
             Route::post('informativos/{informativo}/request-changes', [InformativoController::class, 'requestChanges']);
         });
-
     });
 
     //apenas se estiver publicado
