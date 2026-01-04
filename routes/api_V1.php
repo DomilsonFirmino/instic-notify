@@ -12,6 +12,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/me', [UserController::class, 'me']);
     Route::get('/users', [UserController::class, 'index']);
     Route::post('/users', [UserController::class, 'store'])->middleware('role:admin');
+    Route::get('/users/notifications', [UserController::class, 'usersnotifications']);
     Route::get('/users/{id}', [UserController::class, 'show']);
     Route::put('/users/{id}', [UserController::class, 'update']);
     Route::delete('/users/{id}', [UserController::class, 'destroy']);
@@ -39,16 +40,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::apiResource('departments', DepartmentController::class)->only(['index', 'show']);
     Route::apiResource('courses', CourseController::class)->only(['index', 'show']);
     Route::apiResource('years', YearController::class)->only(['index', 'show']);
-    Route::get('informativos/status', [InformativoController::class, 'statusOptions'])->middleware('role:admin|editor|revisor');
+    Route::get('informativos/status', [InformativoController::class, 'statusOptions']);
     Route::apiResource('informativos', InformativoController::class)->only(['index', 'show']);
 
     Route::group(['middleware' => ['role:admin|editor|revisor']],function () {
-
-
-        Route::group(['middleware' => ['role:admin|revisor']],function () {
-            Route::apiResource('informativos', InformativoController::class)->only(['store', 'update', 'destroy']);
-            Route::post('informativos/{informativo}/schedule', [InformativoController::class, 'schedule']);
-        });
+        Route::apiResource('informativos', InformativoController::class)->only(['store', 'update', 'destroy']);
+        Route::post('informativos/{informativo}/schedule', [InformativoController::class, 'schedule']);
 
         Route::group(['middleware' => ['role:admin|revisor']],function () {
             Route::post('informativos/{informativo}/reject', [InformativoController::class, 'reject']);

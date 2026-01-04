@@ -7,13 +7,14 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use App\Http\Controllers\ApiController;
 use App\Http\Requests\Api\V1\StoreUserRequest;
 use App\Http\Requests\Api\V1\UpdateUserRequest;
+use App\Models\Notification;
 use App\Models\User;
 
 class UserController extends ApiController
 {
     public function me(Request $request)
     {
-        $user = $request->user()->load('course', 'year', 'department');
+        $user = $request->user()->load('course', 'year', 'department','notifications', 'favorites');
         return $this->success($user,[],200);
     }
 
@@ -157,8 +158,32 @@ class UserController extends ApiController
         } catch (ModelNotFoundException $e) {
             return $this->error('Usuário não encontrado.', 'NOT_FOUND', [], 404);
         }
-        $notifications = $user->notifications;
-        return $this->success($notifications,[],200);
+        $notifications = $user->notifications()->paginate();
+        $meta = [
+            'current_page' => $notifications->currentPage(),
+            'per_page' => $notifications->perPage(),
+            'total' => $notifications->total(),
+            'last_page' => $notifications->lastPage(),
+        ];
+        return $this->success($notifications->items(),$meta,200);
+    }
+
+    public function usersnotifications()
+    {
+        $auth = request()->user();
+        $role = $auth->hasRole('admin');
+        if (!$role) {
+            return $this->error('Acesso negado às notificações de outro usuário.', 'FORBIDDEN', [], 403);
+        }
+
+        $notifications = Notification::query()->paginate();
+        $meta = [
+            'current_page' => $notifications->currentPage(),
+            'per_page' => $notifications->perPage(),
+            'total' => $notifications->total(),
+            'last_page' => $notifications->lastPage(),
+        ];
+        return $this->success($notifications->items(),$meta, 200);
     }
 
     public function showFavorite($userId, $favoriteId)
@@ -240,7 +265,7 @@ class UserController extends ApiController
             $notification->save();
             return $this->success($notification,[],200);
         }
-        return response()->json(['message' => 'Notification not found'], 404);
+        return $this->error('Notificação não encontrada.', 'NOT_FOUND', [], 404);
     }
 
     public function markAllNotificationsAsRead($userId)
@@ -258,6 +283,7 @@ class UserController extends ApiController
         if ((string)$auth->id === (string)$userId || $auth->hasRole('admin')) {
             $user->notifications()->whereNull('read_at')->update(['read_at' => now()]);
         }
-        return response()->json(['message' => 'All notifications marked as read'], 200);
+
+        return $this->success(['message' => 'All notifications marked as read'],[],200);
     }
 }

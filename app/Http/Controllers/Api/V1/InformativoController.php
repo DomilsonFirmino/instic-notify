@@ -35,10 +35,9 @@ class InformativoController extends ApiController
     {
         $auth = $request->user();
         $userRole = $auth->role ?? "leitor";
-        $with = ['category','course','year','department'];
+        $with = ['category','course','year','department','author'];
         if ($userRole !== 'leitor') {
             $with[] = 'reviews';
-            $with[] = 'author';
             $with[] = 'publisher';
         }
         $query = Informativo::query()->with($with);
@@ -47,15 +46,15 @@ class InformativoController extends ApiController
         switch ($userRole) {
             case 'leitor':
                 $query->where('status', 'publicado');
-                // $query->where(function($q) use ($auth) {
-                //     $q->whereNull('course_id')->orWhere('course_id', $auth->course_id);
-                // });
-                // $query->where(function($q) use ($auth) {
-                //     $q->whereNull('year_id')->orWhere('year_id', $auth->year_id);
-                // });
-                // $query->where(function($q) use ($auth) {
-                //     $q->whereNull('department_id')->orWhere('department_id', $auth->department_id);
-                // });
+                $query->where(function($q) use ($auth) {
+                    $q->whereNull('course_id')->orWhere('course_id', $auth->course_id);
+                });
+                $query->where(function($q) use ($auth) {
+                    $q->whereNull('year_id')->orWhere('year_id', $auth->year_id);
+                });
+                $query->where(function($q) use ($auth) {
+                    $q->whereNull('department_id')->orWhere('department_id', $auth->department_id);
+                });
                 break;
             case 'revisor':
                 $query->where('status', 'pendente')
@@ -102,12 +101,13 @@ class InformativoController extends ApiController
             'created_at' => now(),
         ]);
 
-        // Notify reviewers when submitted for review
+        // Notify reviewers and admins when submitted for review
         if ($informativo->status === 'pendente') {
-            $reviewers = User::where('role', 'revisor')->get();
-            foreach ($reviewers as $rev) {
+            $notifiedUsers = User::whereIn('role', ['revisor', 'admin'])->get();
+            foreach ($notifiedUsers as $user) {
                 UserNotification::create([
-                    'user_id' => $rev->id,
+                    'user_id' => $user->id,
+                    'informativo_id' => $informativo->id,
                     'title' => 'Informativo pendente de revisão',
                     'message' => 'O informativo #'.$informativo->id.' necessita de revisão.',
                     'created_at' => now(),
@@ -134,6 +134,18 @@ class InformativoController extends ApiController
                 'description' => 'Informativo atualizado ID '.$informativo->id,
                 'created_at' => now(),
             ]);
+            if ($informativo->status === 'pendente') {
+                $notifiedUsers = User::whereIn('role', ['revisor', 'admin'])->get();
+                foreach ($notifiedUsers as $user) {
+                    UserNotification::create([
+                        'user_id' => $user->id,
+                        'informativo_id' => $informativo->id,
+                        'title' => 'Informativo pendente de revisão',
+                        'message' => 'O informativo #'.$informativo->id.' necessita de revisão.',
+                        'created_at' => now(),
+                    ]);
+                }
+            }
             return $this->success($informativo->load(['category','course','year','author','publisher']));
         }
 
@@ -163,11 +175,26 @@ class InformativoController extends ApiController
         }
 
         $data = $request->validated();
+        FacadeLog::info('Author updating informativo ID '.$informativo->id);
         // Se o autor está editando, só pode mudar status para 'rascunho' ou 'pendente'
         if (isset($data['status']) && !in_array($data['status'], ['rascunho', 'pendente'], true)) {
             return $this->error('O autor só pode definir o status como rascunho ou pendente.', 'FORBIDDEN', [], 403);
         }
         $informativo->update($data);
+
+        // Se o status foi alterado para 'pendente', notifica revisores e admins
+        if ($informativo->status === 'pendente') {
+            $notifiedUsers = User::whereIn('role', ['revisor', 'admin'])->get();
+            foreach ($notifiedUsers as $user) {
+                UserNotification::create([
+                    'user_id' => $user->id,
+                    'informativo_id' => $informativo->id,
+                    'title' => 'Informativo pendente de revisão',
+                    'message' => 'O informativo #'.$informativo->id.' necessita de revisão.',
+                    'created_at' => now(),
+                ]);
+            }
+        }
 
         Log::create([
             'user_id' => $auth->id,
@@ -239,6 +266,22 @@ class InformativoController extends ApiController
         }
         $informativo->update($updateData);
 
+        // Notify author and admins
+        $author = User::find($informativo->author_id);
+        $admins = User::where('role', 'admin')->get();
+        $notifiedUsers = collect([$author])->merge($admins)->unique('id');
+        foreach ($notifiedUsers as $user) {
+            if ($user) {
+                UserNotification::create([
+                    'user_id' => $user->id,
+                    'informativo_id' => $informativo->id,
+                    'title' => 'Informativo agendado',
+                    'message' => 'O informativo #'.$informativo->id.' foi agendado para publicação em '.$data['publish_at'].($data['unpublished_at'] ? (', despublicação em '.$data['unpublished_at']) : ''),
+                    'created_at' => now(),
+                ]);
+            }
+        }
+
         Log::create([
             'user_id' => $auth->id,
             'action' => 'informativo.schedule',
@@ -259,6 +302,22 @@ class InformativoController extends ApiController
         }
         $request->validate(['reason' => ['required','string']]);
         $informativo->update(['status' => 'rejeitado', 'rejection_reason' => $request->input('reason'), 'published_by' => null, 'published_at' => null]);
+
+        // Notify author and admins
+        $author = User::find($informativo->author_id);
+        $admins = User::where('role', 'admin')->get();
+        $notifiedUsers = collect([$author])->merge($admins)->unique('id');
+        foreach ($notifiedUsers as $user) {
+            if ($user) {
+                UserNotification::create([
+                    'user_id' => $user->id,
+                    'informativo_id' => $informativo->id,
+                    'title' => 'Informativo rejeitado',
+                    'message' => 'O informativo #'.$informativo->id.' foi rejeitado.',
+                    'created_at' => now(),
+                ]);
+            }
+        }
 
         Log::create([
             'user_id' => $auth->id,
@@ -282,6 +341,22 @@ class InformativoController extends ApiController
             'status' => 'aprovado',
             'rejection_reason' => null
         ]);
+
+        // Notify author and admins
+        $author = User::find($informativo->author_id);
+        $admins = User::where('role', 'admin')->get();
+        $notifiedUsers = collect([$author])->merge($admins)->unique('id');
+        foreach ($notifiedUsers as $user) {
+            if ($user) {
+                UserNotification::create([
+                    'user_id' => $user->id,
+                    'informativo_id' => $informativo->id,
+                    'title' => 'Informativo aprovado',
+                    'message' => 'O informativo #'.$informativo->id.' foi aprovado.',
+                    'created_at' => now(),
+                ]);
+            }
+        }
 
         Log::create([
             'user_id' => $auth->id,
@@ -311,6 +386,21 @@ class InformativoController extends ApiController
                 'description' => 'Solicitadas mudanças (admin) para Informativo ID '.$informativo->id,
                 'created_at' => now(),
             ]);
+            $author = User::find($informativo->author_id);
+            $admins = User::where('role', 'admin')->get();
+            $notifiedUsers = collect([$author])->merge($admins)->unique('id');
+            foreach ($notifiedUsers as $user) {
+                if ($user) {
+                    UserNotification::create([
+                        'user_id' => $user->id,
+                        'informativo_id' => $informativo->id,
+                        'title' => 'Solicitadas mudanças no informativo',
+                        'message' => 'O informativo #'.$informativo->id.' recebeu uma solicitação de mudanças.',
+                        'created_at' => now(),
+                    ]);
+                }
+            }
+
             return $this->success($informativo->fresh()->load('reviews'));
         }
         if (!$auth || !($auth->hasRole('revisor') || $auth->can('informativos.review'))) {
@@ -330,6 +420,22 @@ class InformativoController extends ApiController
             'comment' => $data['feedback'],
             'created_at' => now(),
         ]);
+
+        // Notify author and admins
+        $author = User::find($informativo->author_id);
+        $admins = User::where('role', 'admin')->get();
+        $notifiedUsers = collect([$author])->merge($admins)->unique('id');
+        foreach ($notifiedUsers as $user) {
+            if ($user) {
+                UserNotification::create([
+                    'user_id' => $user->id,
+                    'informativo_id' => $informativo->id,
+                    'title' => 'Solicitadas mudanças no informativo',
+                    'message' => 'O informativo #'.$informativo->id.' recebeu uma solicitação de mudanças.',
+                    'created_at' => now(),
+                ]);
+            }
+        }
 
         Log::create([
             'user_id' => $auth->id,

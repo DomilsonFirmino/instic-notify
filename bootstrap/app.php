@@ -12,6 +12,9 @@ use Spatie\Permission\Middleware\RoleMiddleware;
 use Spatie\Permission\Middleware\PermissionMiddleware;
 use Spatie\Permission\Middleware\RoleOrPermissionMiddleware;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Illuminate\Console\Scheduling\Schedule;
+use App\Console\Scheduler\InformativoScheduler;
+
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
@@ -145,4 +148,8 @@ return Application::configure(basePath: dirname(__DIR__))
             }
             return null; // fall back to default handler for non-JSON requests
         });
-    })->create();
+    })
+    ->withSchedule(function (Schedule $schedule): void {
+        $schedule->call(new InformativoScheduler())->everyMinute();
+    })
+    ->create();

@@ -12,7 +12,7 @@ class Notification extends Model
 
     public $timestamps = false;
 
-    protected $fillable = ['user_id','title','message','read_at','created_at'];
+    protected $fillable = ['user_id','informativo_id','title','message','read_at','created_at'];
 
     protected $casts = [
         'read_at' => 'datetime',
@@ -22,5 +22,10 @@ class Notification extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function informativo(): BelongsTo
+    {
+        return $this->belongsTo(Informativo::class);
     }
 }
