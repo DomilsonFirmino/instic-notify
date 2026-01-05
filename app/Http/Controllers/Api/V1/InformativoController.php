@@ -46,14 +46,20 @@ class InformativoController extends ApiController
         switch ($userRole) {
             case 'leitor':
                 $query->where('status', 'publicado');
+                // $query->where(function($q) use ($auth) {
+                //     $q->whereNull('course_id')->orWhere('course_id', $auth->course_id)
+                //       ->orWhereNull('year_id')->orWhere('year_id', $auth->year_id)
+                //       ->orWhereNull('department_id')->orWhere('department_id', $auth->department_id);
+                // });
                 $query->where(function($q) use ($auth) {
-                    $q->whereNull('course_id')->orWhere('course_id', $auth->course_id);
-                });
-                $query->where(function($q) use ($auth) {
-                    $q->whereNull('year_id')->orWhere('year_id', $auth->year_id);
-                });
-                $query->where(function($q) use ($auth) {
-                    $q->whereNull('department_id')->orWhere('department_id', $auth->department_id);
+                    $q->orWhere('course_id', $auth->course_id)
+                      ->orWhere('year_id', $auth->year_id)
+                      ->orWhere('department_id', $auth->department_id)
+                      ->orWhere(function($sub) {
+                          $sub->whereNull('course_id')
+                              ->whereNull('year_id')
+                              ->whereNull('department_id');
+                      });
                 });
                 break;
             case 'revisor':
