@@ -125,7 +125,7 @@ class InformativoController extends ApiController
 
     public function show(Informativo $informativo)
     {
-        return $this->success($informativo->load(['category','course','year','author','publisher','reviews']));
+        return $this->success($informativo->load(['category','course','year','author','publisher','reviews','favorites']));
     }
 
     public function update(UpdateInformativoRequest $request, Informativo $informativo)
