@@ -12,6 +12,7 @@ use App\Models\Notification as UserNotification;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log as FacadeLog;
+use App\Models\InformativoFile;
 
 class InformativoController extends ApiController
 {
@@ -35,13 +36,13 @@ class InformativoController extends ApiController
     {
         $auth = $request->user();
         $userRole = $auth->role ?? "leitor";
-        $with = ['category','course','year','department','author'];
+        $with = ['category','course','year','department','author','files'];
         if ($userRole !== 'leitor') {
             $with[] = 'reviews';
             $with[] = 'publisher';
         }
-        $query = Informativo::query()->with($with);
 
+        $query = Informativo::query()->with($with);
 
         switch ($userRole) {
             case 'leitor':
@@ -84,9 +85,23 @@ class InformativoController extends ApiController
         return $this->success($paginator->items(), $meta);
     }
 
+    // public function store(Request $request)
     public function store(StoreInformativoRequest $request)
     {
+
+        // Log::info('Creating informativo with data: ', $request);
         $data = $request->validated();
+
+        // Processa todos os arquivos enviados (array ou único)
+        $files = [];
+        $inputFiles = $data['files'] ?? [];
+        foreach (is_array($inputFiles) ? $inputFiles : [$inputFiles] as $file) {
+            if ($file) {
+                $files[] = $file->store('informativos_files', 'public');
+            }
+        }
+        $data['files'] = $files;
+
         // Support alias field 'unpublish_at' by mapping to 'unpublished_at'
         if (array_key_exists('unpublish_at', $data) && !array_key_exists('unpublished_at', $data)) {
             $data['unpublished_at'] = $data['unpublish_at'];
@@ -121,6 +136,22 @@ class InformativoController extends ApiController
             }
         }
         return $this->success($informativo->load(['category','course','year','author','publisher']), status:201);
+    }
+
+    public function files(Request $request)
+    {
+        $auth = $request->user();
+
+        $query = InformativoFile::query();
+
+        $paginator = $query->paginate();
+        $meta = [
+            'current_page' => $paginator->currentPage(),
+            'per_page' => $paginator->perPage(),
+            'total' => $paginator->total(),
+            'last_page' => $paginator->lastPage(),
+        ];
+        return $this->success($paginator->items(), $meta);
     }
 
     public function show(Informativo $informativo)

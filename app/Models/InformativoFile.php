@@ -11,6 +11,7 @@ class InformativoFile extends Model
     use HasFactory;
 
     protected $fillable = ['informativo_id','path','original_name','size'];
+    protected $table = 'informativos_files';
 
     public function informativo(): BelongsTo
     {

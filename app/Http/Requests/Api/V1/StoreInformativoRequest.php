@@ -34,6 +34,9 @@ class StoreInformativoRequest extends ApiRequest
             'author_id' => ['prohibited'],
             'publish_at' => ['nullable','date'],
             'unpublish_at' => ['nullable','date'],
+            // Accept single file or multiple files. Validation for each file below.
+            'files' => ['nullable'],
+            'files.*' => ['file','image','mimes:jpeg,png,jpg,webp','max:5120'], // max 5MB
         ];
     }
 }

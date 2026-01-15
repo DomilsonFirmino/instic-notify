@@ -41,6 +41,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::apiResource('courses', CourseController::class)->only(['index', 'show']);
     Route::apiResource('years', YearController::class)->only(['index', 'show']);
     Route::get('informativos/status', [InformativoController::class, 'statusOptions']);
+    Route::get('informativos/files', [InformativoController::class, 'files']);
     Route::apiResource('informativos', InformativoController::class)->only(['index', 'show']);
 
     Route::group(['middleware' => ['role:admin|editor|revisor']],function () {
