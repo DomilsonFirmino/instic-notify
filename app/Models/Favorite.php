@@ -12,7 +12,7 @@ class Favorite extends Model
 
     public $timestamps = false;
 
-    protected $fillable = ['user_id','informativo_id','created_at'];
+    protected $fillable = ['user_id', 'informativo_id', 'created_at'];
 
     protected $casts = ['created_at' => 'datetime'];
 

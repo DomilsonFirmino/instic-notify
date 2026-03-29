@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\DepartmentController;
 use App\Http\Controllers\Api\V1\CourseController;
 use App\Http\Controllers\Api\V1\YearController;
 use App\Http\Controllers\Api\V1\InformativoController;
+use App\Http\Controllers\Api\V1\ImageUploadController;
 
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/me', [UserController::class, 'me']);
@@ -24,6 +25,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/users/{id}/notifications/{notificationId}', [UserController::class, 'showNotification']);
     Route::post('/users/{userId}/notifications/{notificationId}/read', [UserController::class, 'markNotificationAsRead']);
     Route::post('/users/{userId}/notifications', [UserController::class, 'markAllNotificationsAsRead']);
+
+    // Image upload for editor
+    Route::post('/images/upload', [ImageUploadController::class, 'uploadEditorImage']);
+    Route::delete('/images/delete', [ImageUploadController::class, 'deleteEditorImage']);
 
     // Apply admin-only middleware to specific resource actions via associative map
 

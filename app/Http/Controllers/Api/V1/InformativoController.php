@@ -5,12 +5,14 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\ApiController;
 use App\Http\Requests\Api\V1\StoreInformativoRequest;
 use App\Http\Requests\Api\V1\UpdateInformativoRequest;
+use App\Jobs\NotifyUsersJob;
 use App\Models\Favorite;
 use App\Models\Informativo;
 use App\Models\Log;
 use App\Models\Notification as UserNotification;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log as FacadeLog;
 use App\Models\InformativoFile;
 
@@ -64,10 +66,7 @@ class InformativoController extends ApiController
                 });
                 break;
             case 'revisor':
-                $query->where('status', 'pendente')
-                ->orWhere('status', 'aprovado')
-                ->orWhere('status', 'agendado')
-                ->orWhere('status', 'publicado');
+                $query->whereIn('status', ['pendente', 'aprovado', 'agendado', 'publicado']);
                 break;
             // Adicione outros cases para outros roles se necessário
             default:
@@ -75,7 +74,57 @@ class InformativoController extends ApiController
                 break;
         }
 
-        $paginator = $query->paginate();
+        if ($request->filled('status')) {
+            $raw = $request->input('status');
+            // Support both array (?status[]=a&status[]=b) and comma-separated (?status=a,b)
+            $statuses = is_array($raw)
+                ? $raw
+                : array_filter(array_map('trim', explode(',', (string) $raw)));
+            if (count($statuses) === 1) {
+                $query->where('status', reset($statuses));
+            } else {
+                $query->whereIn('status', $statuses);
+            }
+        }
+
+        if ($request->filled('category_id')) {
+            $query->where('category_id', $request->integer('category_id'));
+        }
+
+        if ($request->filled('search')) {
+            $search = trim((string) $request->input('search'));
+            $query->where(function ($searchQuery) use ($search) {
+                $searchQuery->where('title', 'like', "%{$search}%")
+                    ->orWhere('content', 'like', "%{$search}%");
+            });
+        }
+
+        $sort = $request->input('sort', 'recentes');
+
+        switch ($sort) {
+            case 'antigos':
+                $query->orderBy('published_at')->orderBy('created_at');
+                break;
+            case 'alfabetica':
+                $query->orderBy('title');
+                break;
+            case 'favoritos':
+                if ($auth) {
+                    $query->withExists([
+                        'favorites as is_favorited' => fn ($favoriteQuery) => $favoriteQuery->where('user_id', $auth->id),
+                    ])->orderByDesc('is_favorited');
+                }
+                $query->orderByDesc('published_at')->orderByDesc('created_at');
+                break;
+            case 'recentes':
+            default:
+                $query->orderByDesc('published_at')->orderByDesc('created_at');
+                break;
+        }
+
+        $perPage = (int) $request->input('per_page', 15);
+        $perPage = max(1, min($perPage, 500));
+        $paginator = $query->paginate($perPage);
         $meta = [
             'current_page' => $paginator->currentPage(),
             'per_page' => $paginator->perPage(),
@@ -93,14 +142,8 @@ class InformativoController extends ApiController
         $data = $request->validated();
 
         // Processa todos os arquivos enviados (array ou único)
-        $files = [];
-        $inputFiles = $data['files'] ?? [];
-        foreach (is_array($inputFiles) ? $inputFiles : [$inputFiles] as $file) {
-            if ($file) {
-                $files[] = $file->store('informativos_files', 'public');
-            }
-        }
-        $data['files'] = $files;
+        $uploadedFiles = is_array($data['files'] ?? null) ? $data['files'] : array_filter([$data['files'] ?? null]);
+        unset($data['files']);
 
         // Support alias field 'unpublish_at' by mapping to 'unpublished_at'
         if (array_key_exists('unpublish_at', $data) && !array_key_exists('unpublished_at', $data)) {
@@ -114,6 +157,14 @@ class InformativoController extends ApiController
         }
         $informativo = $request->user()->authoredInformativos()->create($data);
 
+        foreach ($uploadedFiles as $file) {
+            $informativo->files()->create([
+                'path' => $file->store('informativos_files', 'public'),
+                'original_name' => $file->getClientOriginalName(),
+                'size' => $file->getSize(),
+            ]);
+        }
+
         // Audit log
         Log::create([
             'user_id' => $request->user()->id,
@@ -125,15 +176,11 @@ class InformativoController extends ApiController
         // Notify reviewers and admins when submitted for review
         if ($informativo->status === 'pendente') {
             $notifiedUsers = User::whereIn('role', ['revisor', 'admin'])->get();
-            foreach ($notifiedUsers as $user) {
-                UserNotification::create([
-                    'user_id' => $user->id,
-                    'informativo_id' => $informativo->id,
-                    'title' => 'Informativo pendente de revisão',
-                    'message' => 'O informativo #'.$informativo->id.' necessita de revisão.',
-                    'created_at' => now(),
-                ]);
-            }
+            NotifyUsersJob::dispatch($notifiedUsers, [
+                'informativo_id' => $informativo->id,
+                'title' => 'Informativo pendente de revisão',
+                'message' => 'O informativo #'.$informativo->id.' necessita de revisão.',
+            ]);
         }
         return $this->success($informativo->load(['category','course','year','author','publisher']), status:201);
     }
@@ -156,7 +203,7 @@ class InformativoController extends ApiController
 
     public function show(Informativo $informativo)
     {
-        return $this->success($informativo->load(['category','course','year','author','publisher','reviews','favorites']));
+        return $this->success($informativo->load(['category','course','year','author','publisher','reviews','favorites','files']));
     }
 
     public function update(UpdateInformativoRequest $request, Informativo $informativo)
@@ -173,15 +220,11 @@ class InformativoController extends ApiController
             ]);
             if ($informativo->status === 'pendente') {
                 $notifiedUsers = User::whereIn('role', ['revisor', 'admin'])->get();
-                foreach ($notifiedUsers as $user) {
-                    UserNotification::create([
-                        'user_id' => $user->id,
-                        'informativo_id' => $informativo->id,
-                        'title' => 'Informativo pendente de revisão',
-                        'message' => 'O informativo #'.$informativo->id.' necessita de revisão.',
-                        'created_at' => now(),
-                    ]);
-                }
+                NotifyUsersJob::dispatch($notifiedUsers, [
+                    'informativo_id' => $informativo->id,
+                    'title' => 'Informativo pendente de revisão',
+                    'message' => 'O informativo #'.$informativo->id.' necessita de revisão.',
+                ]);
             }
             return $this->success($informativo->load(['category','course','year','author','publisher']));
         }
@@ -222,15 +265,11 @@ class InformativoController extends ApiController
         // Se o status foi alterado para 'pendente', notifica revisores e admins
         if ($informativo->status === 'pendente') {
             $notifiedUsers = User::whereIn('role', ['revisor', 'admin'])->get();
-            foreach ($notifiedUsers as $user) {
-                UserNotification::create([
-                    'user_id' => $user->id,
-                    'informativo_id' => $informativo->id,
-                    'title' => 'Informativo pendente de revisão',
-                    'message' => 'O informativo #'.$informativo->id.' necessita de revisão.',
-                    'created_at' => now(),
-                ]);
-            }
+            NotifyUsersJob::dispatch($notifiedUsers, [
+                'informativo_id' => $informativo->id,
+                'title' => 'Informativo pendente de revisão',
+                'message' => 'O informativo #'.$informativo->id.' necessita de revisão.',
+            ]);
         }
 
         Log::create([
@@ -307,17 +346,11 @@ class InformativoController extends ApiController
         $author = User::find($informativo->author_id);
         $admins = User::where('role', 'admin')->get();
         $notifiedUsers = collect([$author])->merge($admins)->unique('id');
-        foreach ($notifiedUsers as $user) {
-            if ($user) {
-                UserNotification::create([
-                    'user_id' => $user->id,
-                    'informativo_id' => $informativo->id,
-                    'title' => 'Informativo agendado',
-                    'message' => 'O informativo #'.$informativo->id.' foi agendado para publicação em '.$data['publish_at'].($data['unpublished_at'] ? (', despublicação em '.$data['unpublished_at']) : ''),
-                    'created_at' => now(),
-                ]);
-            }
-        }
+        NotifyUsersJob::dispatch($notifiedUsers->filter(), [
+            'informativo_id' => $informativo->id,
+            'title' => 'Informativo agendado',
+            'message' => 'O informativo #'.$informativo->id.' foi agendado para publicação em '.$data['publish_at'].($data['unpublished_at'] ? (', despublicação em '.$data['unpublished_at']) : ''),
+        ]);
 
         Log::create([
             'user_id' => $auth->id,
@@ -344,17 +377,11 @@ class InformativoController extends ApiController
         $author = User::find($informativo->author_id);
         $admins = User::where('role', 'admin')->get();
         $notifiedUsers = collect([$author])->merge($admins)->unique('id');
-        foreach ($notifiedUsers as $user) {
-            if ($user) {
-                UserNotification::create([
-                    'user_id' => $user->id,
-                    'informativo_id' => $informativo->id,
-                    'title' => 'Informativo rejeitado',
-                    'message' => 'O informativo #'.$informativo->id.' foi rejeitado.',
-                    'created_at' => now(),
-                ]);
-            }
-        }
+        NotifyUsersJob::dispatch($notifiedUsers->filter(), [
+            'informativo_id' => $informativo->id,
+            'title' => 'Informativo rejeitado',
+            'message' => 'O informativo #'.$informativo->id.' foi rejeitado.',
+        ]);
 
         Log::create([
             'user_id' => $auth->id,
@@ -383,17 +410,11 @@ class InformativoController extends ApiController
         $author = User::find($informativo->author_id);
         $admins = User::where('role', 'admin')->get();
         $notifiedUsers = collect([$author])->merge($admins)->unique('id');
-        foreach ($notifiedUsers as $user) {
-            if ($user) {
-                UserNotification::create([
-                    'user_id' => $user->id,
-                    'informativo_id' => $informativo->id,
-                    'title' => 'Informativo aprovado',
-                    'message' => 'O informativo #'.$informativo->id.' foi aprovado.',
-                    'created_at' => now(),
-                ]);
-            }
-        }
+        NotifyUsersJob::dispatch($notifiedUsers->filter(), [
+            'informativo_id' => $informativo->id,
+            'title' => 'Informativo aprovado',
+            'message' => 'O informativo #'.$informativo->id.' foi aprovado.',
+        ]);
 
         Log::create([
             'user_id' => $auth->id,
@@ -426,17 +447,11 @@ class InformativoController extends ApiController
             $author = User::find($informativo->author_id);
             $admins = User::where('role', 'admin')->get();
             $notifiedUsers = collect([$author])->merge($admins)->unique('id');
-            foreach ($notifiedUsers as $user) {
-                if ($user) {
-                    UserNotification::create([
-                        'user_id' => $user->id,
-                        'informativo_id' => $informativo->id,
-                        'title' => 'Solicitadas mudanças no informativo',
-                        'message' => 'O informativo #'.$informativo->id.' recebeu uma solicitação de mudanças.',
-                        'created_at' => now(),
-                    ]);
-                }
-            }
+            NotifyUsersJob::dispatch($notifiedUsers->filter(), [
+                'informativo_id' => $informativo->id,
+                'title' => 'Solicitadas mudanças no informativo',
+                'message' => 'O informativo #'.$informativo->id.' recebeu uma solicitação de mudanças.',
+            ]);
 
             return $this->success($informativo->fresh()->load('reviews'));
         }
@@ -462,17 +477,11 @@ class InformativoController extends ApiController
         $author = User::find($informativo->author_id);
         $admins = User::where('role', 'admin')->get();
         $notifiedUsers = collect([$author])->merge($admins)->unique('id');
-        foreach ($notifiedUsers as $user) {
-            if ($user) {
-                UserNotification::create([
-                    'user_id' => $user->id,
-                    'informativo_id' => $informativo->id,
-                    'title' => 'Solicitadas mudanças no informativo',
-                    'message' => 'O informativo #'.$informativo->id.' recebeu uma solicitação de mudanças.',
-                    'created_at' => now(),
-                ]);
-            }
-        }
+        NotifyUsersJob::dispatch($notifiedUsers->filter(), [
+            'informativo_id' => $informativo->id,
+            'title' => 'Solicitadas mudanças no informativo',
+            'message' => 'O informativo #'.$informativo->id.' recebeu uma solicitação de mudanças.',
+        ]);
 
         Log::create([
             'user_id' => $auth->id,
@@ -489,10 +498,34 @@ class InformativoController extends ApiController
         if ($informativo->status !== 'publicado') {
             return $this->error('Só é possível favoritar informativos publicados.', 'FORBIDDEN', [], 403);
         }
-        $userId = $request->user()?->id ?? $request->input('user_id');
-        $fav = Favorite::where(['user_id'=>$userId,'informativo_id'=>$informativo->id])->first();
-        if ($fav) { $fav->delete(); return $this->success(['favorite' => false]); }
-        Favorite::create(['user_id'=>$userId,'informativo_id'=>$informativo->id,'created_at'=>now()]);
-        return $this->success(['favorite' => true]);
+        $user = Auth::user();
+
+        $exists = Favorite::where('user_id', $user->id)
+            ->where('informativo_id', $informativo->id)
+            ->exists();
+
+        if ($exists) {
+            Favorite::where('user_id', $user->id)
+                ->where('informativo_id', $informativo->id)
+                ->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'removido dos favoritos',
+                'is_favorited' => false,
+            ]);
+        }
+
+        Favorite::create([
+            'user_id' => $user->id,
+            'informativo_id' => $informativo->id,
+            'created_at' => now(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'adicionado aos favoritos',
+            'is_favorited' => true,
+        ]);
     }
 }

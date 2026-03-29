@@ -4,7 +4,7 @@
         protected function success($data,$pagination = [], $status = 200){
             return response()->json(
                 [
-                    'sucess' => true,
+                    'success' => true,
                     'data' => $data,
                     'pagination' => $pagination,
                 ], $status
@@ -14,7 +14,7 @@
         protected function error($message, $code, $details = [], $status = 500){
             return response()->json(
                 [
-                    'sucess' => false,
+                    'success' => false,
                     'error' => ['code' => $code, 'message' => $message,'details' => $details]
                 ],$status
             );

@@ -2,9 +2,9 @@
 
 namespace App\Console\Scheduler;
 
+use App\Jobs\NotifyUsersJob;
 use App\Models\Informativo;
 use App\Models\User;
-use App\Models\Notification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -29,15 +29,11 @@ class InformativoScheduler
                         $info->update(['status' => 'publicado', 'published_at' => $now]);
                         // Notifica todos os usuários sobre a publicação
                         $allUsers = User::all();
-                        foreach ($allUsers as $user) {
-                            Notification::create([
-                                'user_id' => $user->id,
-                                'informativo_id' => $info->id,
-                                'title' => 'Novo informativo publicado',
-                                'message' => 'O informativo #' . $info->id . ' foi publicado.',
-                                'created_at' => now(),
-                            ]);
-                        }
+                        NotifyUsersJob::dispatch($allUsers, [
+                            'informativo_id' => $info->id,
+                            'title' => 'Novo informativo publicado',
+                            'message' => 'O informativo #' . $info->id . ' foi publicado.',
+                        ]);
                         $publicados++;
                     } else {
                         $skipPublicar++;
@@ -56,15 +52,11 @@ class InformativoScheduler
                         $info->update(['status' => 'despublicado']);
                         // Notifica todos os usuários sobre a despublicação
                         $allUsers = User::all();
-                        foreach ($allUsers as $user) {
-                            Notification::create([
-                                'user_id' => $user->id,
-                                'informativo_id' => $info->id,
-                                'title' => 'Informativo despublicado',
-                                'message' => 'O informativo #' . $info->id . ' foi despublicado.',
-                                'created_at' => now(),
-                            ]);
-                        }
+                        NotifyUsersJob::dispatch($allUsers, [
+                            'informativo_id' => $info->id,
+                            'title' => 'Informativo despublicado',
+                            'message' => 'O informativo #' . $info->id . ' foi despublicado.',
+                        ]);
                         $despublicados++;
                     } else {
                         $skipDespublicar++;

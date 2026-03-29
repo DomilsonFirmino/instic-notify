@@ -23,8 +23,11 @@ class UserController extends ApiController
         $auth = request()->user();
 
         $role = $auth->role ?? null;
+        $perPage = (int) request()->input('per_page', 15);
+        $perPage = max(1, min($perPage, 500));
+
         if ($role === 'admin') {
-            $users = User::query()->paginate();
+            $users = User::query()->paginate($perPage);
             $meta = [
                 'current_page' => $users->currentPage(),
                 'per_page' => $users->perPage(),
@@ -35,7 +38,7 @@ class UserController extends ApiController
         }
 
         if ($role === 'leitor') {
-            $users = User::query()->where('role', 'leitor')->paginate();
+            $users = User::query()->where('role', 'leitor')->paginate($perPage);
             $meta = [
                 'current_page' => $users->currentPage(),
                 'per_page' => $users->perPage(),
@@ -143,7 +146,7 @@ class UserController extends ApiController
         } catch (ModelNotFoundException $e) {
             return $this->error('Usuário não encontrado.', 'NOT_FOUND', [], 404);
         }
-        $favorites = $user->favorites;
+        $favorites = $user->favorites()->with('informativo')->get();
         return $this->success($favorites,[],200);
     }
 
