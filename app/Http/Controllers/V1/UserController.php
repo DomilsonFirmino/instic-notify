@@ -161,7 +161,7 @@ class UserController extends ApiController
         } catch (ModelNotFoundException $e) {
             return $this->error('Usuário não encontrado.', 'NOT_FOUND', [], 404);
         }
-        $notifications = $user->notifications()->paginate();
+        $notifications = $user->notifications()->with('informativo')->paginate();
         $meta = [
             'current_page' => $notifications->currentPage(),
             'per_page' => $notifications->perPage(),
@@ -179,7 +179,7 @@ class UserController extends ApiController
             return $this->error('Acesso negado às notificações de outro usuário.', 'FORBIDDEN', [], 403);
         }
 
-        $notifications = Notification::query()->paginate();
+        $notifications = Notification::query()->with('informativo')->paginate();
         $meta = [
             'current_page' => $notifications->currentPage(),
             'per_page' => $notifications->perPage(),
@@ -240,7 +240,10 @@ class UserController extends ApiController
         if ((string)$auth->id !== (string)$userId && !$auth->hasRole('admin')) {
             return $this->error('Acesso negado à notificação de outro usuário.', 'FORBIDDEN', [], 403);
         }
-        $notification = \App\Models\Notification::where('user_id', $userId)->where('id', $notificationId)->first();
+        $notification = \App\Models\Notification::with('informativo')
+            ->where('user_id', $userId)
+            ->where('id', $notificationId)
+            ->first();
         if (!$notification) {
             return $this->error('Notificação não encontrada.', 'NOT_FOUND', [], 404);
         }
@@ -258,7 +261,7 @@ class UserController extends ApiController
         } catch (ModelNotFoundException $e) {
             return $this->error('Usuário não encontrado.', 'NOT_FOUND', [], 404);
         }
-        $notification = $user->notifications()->where('id', $notificationId)->first();
+        $notification = $user->notifications()->with('informativo')->where('id', $notificationId)->first();
         if ($notification) {
             // Permitir apenas se o usuário for dono da notificação ou admin
             if ((string)$auth->id !== (string)$userId && !$auth->hasRole('admin')) {
@@ -266,6 +269,7 @@ class UserController extends ApiController
             }
             $notification->read_at = now();
             $notification->save();
+            $notification->load('informativo');
             return $this->success($notification,[],200);
         }
         return $this->error('Notificação não encontrada.', 'NOT_FOUND', [], 404);
