@@ -27,9 +27,10 @@ class InformativoScheduler
                     if ($info->status === 'agendado') {
                         Log::info('Publicando informativo ID ' . $info->id . ' (publish_at: ' . $info->publish_at . ')');
                         $info->update(['status' => 'publicado', 'published_at' => $now]);
-                        // Notifica todos os usuários sobre a publicação
-                        $allUsers = User::all();
-                        NotifyUsersJob::dispatch($allUsers, [
+
+                        // Notifica apenas os leitores relevantes por audiência
+                        $relevantReaders = $this->getRelevantReaders($info);
+                        NotifyUsersJob::dispatch($relevantReaders, [
                             'informativo_id' => $info->id,
                             'title' => 'Novo informativo publicado',
                             'message' => 'O informativo #' . $info->id . ' foi publicado.',
@@ -50,9 +51,10 @@ class InformativoScheduler
                     if ($info->status === 'publicado') {
                         Log::info('Despublicando informativo ID ' . $info->id . ' (unpublished_at: ' . $info->unpublished_at . ')');
                         $info->update(['status' => 'despublicado']);
-                        // Notifica todos os usuários sobre a despublicação
-                        $allUsers = User::all();
-                        NotifyUsersJob::dispatch($allUsers, [
+
+                        // Notifica apenas os leitores que receberam a publicação originalmente
+                        $relevantReaders = $this->getRelevantReaders($info);
+                        NotifyUsersJob::dispatch($relevantReaders, [
                             'informativo_id' => $info->id,
                             'title' => 'Informativo despublicado',
                             'message' => 'O informativo #' . $info->id . ' foi despublicado.',
@@ -76,5 +78,37 @@ class InformativoScheduler
         } catch (\Throwable $e) {
             Log::error('Erro na transação do scheduler: ' . $e->getMessage(), ['exception' => $e]);
         }
+    }
+
+    private function getRelevantReaders(Informativo $informativo)
+    {
+        $query = User::query()->where('role', 'leitor');
+
+        if (is_null($informativo->course_id)
+            && is_null($informativo->year_id)
+            && is_null($informativo->department_id)
+        ) {
+            return $query->get();
+        }
+
+        return $query->where(function ($subQuery) use ($informativo) {
+            if (!is_null($informativo->course_id)) {
+                $subQuery->orWhere('course_id', $informativo->course_id);
+            }
+
+            if (!is_null($informativo->year_id)) {
+                $subQuery->orWhere('year_id', $informativo->year_id);
+            }
+
+            if (!is_null($informativo->department_id)) {
+                $subQuery->orWhere('department_id', $informativo->department_id);
+            }
+
+            $subQuery->orWhere(function ($nested) {
+                $nested->whereNull('course_id')
+                    ->whereNull('year_id')
+                    ->whereNull('department_id');
+            });
+        })->get();
     }
 }

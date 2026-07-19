@@ -203,6 +203,22 @@ class InformativoController extends ApiController
 
     public function show(Informativo $informativo)
     {
+        $auth = request()->user();
+
+        if ($auth && $auth->role === 'leitor') {
+            if ($informativo->status !== 'publicado') {
+                return $this->error('Informativo não disponível.', 'FORBIDDEN', [], 403);
+            }
+
+            $hasNotification = UserNotification::where('user_id', $auth->id)
+                ->where('informativo_id', $informativo->id)
+                ->exists();
+
+            if (!$hasNotification) {
+                return $this->error('Acesso negado ao informativo.', 'FORBIDDEN', [], 403);
+            }
+        }
+
         return $this->success($informativo->load(['category','course','year','author','publisher','reviews','favorites','files']));
     }
 

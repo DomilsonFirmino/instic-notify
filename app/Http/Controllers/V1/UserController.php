@@ -161,7 +161,7 @@ class UserController extends ApiController
         } catch (ModelNotFoundException $e) {
             return $this->error('Usuário não encontrado.', 'NOT_FOUND', [], 404);
         }
-        $notifications = $user->notifications()->with('informativo')->paginate();
+        $notifications = $user->notifications()->with('informativo')->orderByDesc('created_at')->paginate();
         $meta = [
             'current_page' => $notifications->currentPage(),
             'per_page' => $notifications->perPage(),
@@ -179,7 +179,7 @@ class UserController extends ApiController
             return $this->error('Acesso negado às notificações de outro usuário.', 'FORBIDDEN', [], 403);
         }
 
-        $notifications = Notification::query()->with('informativo')->paginate();
+        $notifications = Notification::query()->with('informativo')->orderByDesc('created_at')->paginate();
         $meta = [
             'current_page' => $notifications->currentPage(),
             'per_page' => $notifications->perPage(),
