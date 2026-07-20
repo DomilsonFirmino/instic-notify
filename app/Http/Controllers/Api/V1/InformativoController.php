@@ -9,10 +9,10 @@ use App\Jobs\NotifyUsersJob;
 use App\Models\Favorite;
 use App\Models\Informativo;
 use App\Models\Log;
-use App\Models\Notification as UserNotification;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log as FacadeLog;
 use App\Models\InformativoFile;
 
@@ -37,41 +37,22 @@ class InformativoController extends ApiController
     public function index(Request $request)
     {
         $auth = $request->user();
-        $userRole = $auth->role ?? "leitor";
+        $isStaff = $auth->hasAnyRole(['admin', 'editor', 'revisor']);
         $with = ['category','course','year','department','author','files'];
-        if ($userRole !== 'leitor') {
+        if ($isStaff) {
             $with[] = 'reviews';
             $with[] = 'publisher';
         }
 
         $query = Informativo::query()->with($with);
 
-        switch ($userRole) {
-            case 'leitor':
-                $query->where('status', 'publicado');
-                // $query->where(function($q) use ($auth) {
-                //     $q->whereNull('course_id')->orWhere('course_id', $auth->course_id)
-                //       ->orWhereNull('year_id')->orWhere('year_id', $auth->year_id)
-                //       ->orWhereNull('department_id')->orWhere('department_id', $auth->department_id);
-                // });
-                $query->where(function($q) use ($auth) {
-                    $q->orWhere('course_id', $auth->course_id)
-                      ->orWhere('year_id', $auth->year_id)
-                      ->orWhere('department_id', $auth->department_id)
-                      ->orWhere(function($sub) {
-                          $sub->whereNull('course_id')
-                              ->whereNull('year_id')
-                              ->whereNull('department_id');
-                      });
-                });
-                break;
-            case 'revisor':
-                $query->whereIn('status', ['pendente', 'aprovado', 'agendado', 'publicado']);
-                break;
-            // Adicione outros cases para outros roles se necessário
-            default:
-                // Nenhum filtro extra para outros roles
-                break;
+        if ($auth->hasAnyRole(['admin', 'editor'])) {
+            // No status/audience filter
+        } elseif ($auth->hasRole('revisor')) {
+            $query->whereIn('status', ['pendente', 'aprovado', 'agendado', 'publicado']);
+        } else {
+            // Leitor (or any non-staff): published + AND audience
+            $query->where('status', 'publicado')->visibleToAudience($auth);
         }
 
         if ($request->filled('status')) {
@@ -151,9 +132,15 @@ class InformativoController extends ApiController
             unset($data['unpublish_at']);
         }
         // Create via the user's authored relationship (sets author_id automatically)
-        // Ensure initial status is only 'rascunho' or 'pendente'
-        if (!in_array($data['status'] ?? 'rascunho', ['rascunho','pendente'], true)) {
+        // Editors: rascunho|pendente; Admin may also set aprovado to skip review
+        $allowedInitial = $request->user()->hasRole('admin')
+            ? ['rascunho', 'pendente', 'aprovado']
+            : ['rascunho', 'pendente'];
+        if (!in_array($data['status'] ?? 'rascunho', $allowedInitial, true)) {
             $data['status'] = 'rascunho';
+        }
+        if (($data['status'] ?? null) === 'aprovado') {
+            $data['rejection_reason'] = null;
         }
         $informativo = $request->user()->authoredInformativos()->create($data);
 
@@ -175,7 +162,7 @@ class InformativoController extends ApiController
 
         // Notify reviewers and admins when submitted for review
         if ($informativo->status === 'pendente') {
-            $notifiedUsers = User::whereIn('role', ['revisor', 'admin'])->get();
+            $notifiedUsers = User::role(['revisor', 'admin'])->get();
             NotifyUsersJob::dispatch($notifiedUsers, [
                 'informativo_id' => $informativo->id,
                 'title' => 'Informativo pendente de revisão',
@@ -205,16 +192,13 @@ class InformativoController extends ApiController
     {
         $auth = request()->user();
 
-        if ($auth && $auth->role === 'leitor') {
+        // Non-staff (leitores): only published items in audience
+        if ($auth && !$auth->hasAnyRole(['admin', 'editor', 'revisor'])) {
             if ($informativo->status !== 'publicado') {
                 return $this->error('Informativo não disponível.', 'FORBIDDEN', [], 403);
             }
 
-            $hasNotification = UserNotification::where('user_id', $auth->id)
-                ->where('informativo_id', $informativo->id)
-                ->exists();
-
-            if (!$hasNotification) {
+            if (!$informativo->isVisibleTo($auth)) {
                 return $this->error('Acesso negado ao informativo.', 'FORBIDDEN', [], 403);
             }
         }
@@ -225,32 +209,95 @@ class InformativoController extends ApiController
     public function update(UpdateInformativoRequest $request, Informativo $informativo)
     {
         $auth = $request->user();
-        // Admin bypasses all checks
+        $data = $request->validated();
+        $previousStatus = $informativo->status;
+
+        // Status changes via PUT are limited by InformativoPolicy::updateStatus
+        // (approve/reject/schedule use dedicated endpoints)
+        if (array_key_exists('status', $data) && $data['status'] !== $informativo->status) {
+            if (!Gate::forUser($auth)->allows('updateStatus', [$informativo, $data['status']])) {
+                return $this->error(
+                    'Transição de status não permitida. Use as ações de revisão ou agendamento.',
+                    'FORBIDDEN',
+                    [],
+                    403
+                );
+            }
+        }
+
+        // Admin can update content; status still gated above
         if ($auth && $auth->hasRole('admin')) {
-            $informativo->update($request->validated());
+            if (($data['status'] ?? null) === 'aprovado') {
+                $data['rejection_reason'] = null;
+            }
+            if (($data['status'] ?? null) === 'rascunho' && $previousStatus === 'publicado') {
+                $data['published_by'] = null;
+                $data['published_at'] = null;
+                $data['publish_at'] = null;
+                $data['unpublished_at'] = null;
+            }
+            $informativo->update($data);
             Log::create([
                 'user_id' => $auth->id,
                 'action' => 'informativo.update',
                 'description' => 'Informativo atualizado ID '.$informativo->id,
                 'created_at' => now(),
             ]);
-            if ($informativo->status === 'pendente') {
-                $notifiedUsers = User::whereIn('role', ['revisor', 'admin'])->get();
+            if ($previousStatus === 'publicado' && $informativo->status === 'rascunho') {
+                $this->notifyReadersUnpublished($informativo);
+            }
+            if ($previousStatus !== 'pendente' && $informativo->status === 'pendente') {
+                $notifiedUsers = User::role(['revisor', 'admin'])->get();
                 NotifyUsersJob::dispatch($notifiedUsers, [
                     'informativo_id' => $informativo->id,
                     'title' => 'Informativo pendente de revisão',
                     'message' => 'O informativo #'.$informativo->id.' necessita de revisão.',
                 ]);
             }
+            if ($previousStatus !== 'aprovado' && $informativo->status === 'aprovado') {
+                $author = User::find($informativo->author_id);
+                $admins = User::role('admin')->get();
+                $notifiedUsers = collect([$author])->merge($admins)->unique('id');
+                NotifyUsersJob::dispatch($notifiedUsers->filter(), [
+                    'informativo_id' => $informativo->id,
+                    'title' => 'Informativo aprovado',
+                    'message' => 'O informativo #'.$informativo->id.' foi aprovado.',
+                ]);
+            }
             return $this->success($informativo->load(['category','course','year','author','publisher']));
         }
 
-        // Reviewer can only edit when status is pendente
-        if ($auth && ($auth->hasRole('revisor'))) {
+        // Author (including reviewer-authors) can edit own drafts/revisao before reviewer branch
+        $isAuthor = ($auth->id === $informativo->author_id);
+        if ($isAuthor && in_array($informativo->status, ['rascunho', 'revisao'], true)) {
+            FacadeLog::info('Author updating informativo ID '.$informativo->id);
+            $informativo->update($data);
+
+            if ($previousStatus !== 'pendente' && $informativo->status === 'pendente') {
+                $notifiedUsers = User::role(['revisor', 'admin'])->get();
+                NotifyUsersJob::dispatch($notifiedUsers, [
+                    'informativo_id' => $informativo->id,
+                    'title' => 'Informativo pendente de revisão',
+                    'message' => 'O informativo #'.$informativo->id.' necessita de revisão.',
+                ]);
+            }
+
+            Log::create([
+                'user_id' => $auth->id,
+                'action' => 'informativo.update',
+                'description' => 'Informativo atualizado ID '.$informativo->id,
+                'created_at' => now(),
+            ]);
+            return $this->success($informativo->load(['category','course','year','author','publisher']));
+        }
+
+        // Reviewer can only edit content when status is pendente (no status jumps via PUT)
+        if ($auth && ($auth->hasRole('revisor') || $auth->can('informativo.review'))) {
             if ($informativo->status !== 'pendente') {
                 return $this->error('O revisor só pode editar informativos pendentes.', 'FORBIDDEN', [], 403);
             }
-            $informativo->update($request->validated());
+            unset($data['status']);
+            $informativo->update($data);
             Log::create([
                 'user_id' => $auth->id,
                 'action' => 'informativo.update',
@@ -260,49 +307,14 @@ class InformativoController extends ApiController
             return $this->success($informativo->load(['category','course','year','author','publisher']));
         }
 
-        // Author can edit only when status is rascunho or revisao
-        $isAuthor = ($auth->id === $informativo->author_id);
-        if(!$isAuthor) {
-            return $this->error('Apenas o autor pode editar o informativo.', 'FORBIDDEN', [], 403);
-        }
-
-        if (!in_array($informativo->status, ['rascunho','revisao'], true)) {
-            return $this->error('Só se pode editar em rascunho ou revisão.', 'FORBIDDEN', [], 403);
-        }
-
-        $data = $request->validated();
-        FacadeLog::info('Author updating informativo ID '.$informativo->id);
-        // Se o autor está editando, só pode mudar status para 'rascunho' ou 'pendente'
-        if (isset($data['status']) && !in_array($data['status'], ['rascunho', 'pendente'], true)) {
-            return $this->error('O autor só pode definir o status como rascunho ou pendente.', 'FORBIDDEN', [], 403);
-        }
-        $informativo->update($data);
-
-        // Se o status foi alterado para 'pendente', notifica revisores e admins
-        if ($informativo->status === 'pendente') {
-            $notifiedUsers = User::whereIn('role', ['revisor', 'admin'])->get();
-            NotifyUsersJob::dispatch($notifiedUsers, [
-                'informativo_id' => $informativo->id,
-                'title' => 'Informativo pendente de revisão',
-                'message' => 'O informativo #'.$informativo->id.' necessita de revisão.',
-            ]);
-        }
-
-        Log::create([
-            'user_id' => $auth->id,
-            'action' => 'informativo.update',
-            'description' => 'Informativo atualizado ID '.$informativo->id,
-            'created_at' => now(),
-        ]);
-        return $this->success($informativo->load(['category','course','year','author','publisher']));
+        return $this->error('Apenas o autor pode editar o informativo.', 'FORBIDDEN', [], 403);
     }
 
     public function destroy(Informativo $informativo)
     {
         $auth = request()->user();
-        // Only allow delete by author while in rascunho
-        if (!$auth || $auth->id !== $informativo->author_id || $informativo->status !== 'rascunho') {
-            return $this->error('A remoção só é permitida em rascunho pelo autor.', 'FORBIDDEN', [], 403);
+        if (!$auth || !Gate::forUser($auth)->allows('delete', $informativo)) {
+            return $this->error('Sem permissão para remover este informativo.', 'FORBIDDEN', [], 403);
         }
 
         $informativo->delete();
@@ -360,7 +372,7 @@ class InformativoController extends ApiController
 
         // Notify author and admins
         $author = User::find($informativo->author_id);
-        $admins = User::where('role', 'admin')->get();
+        $admins = User::role('admin')->get();
         $notifiedUsers = collect([$author])->merge($admins)->unique('id');
         NotifyUsersJob::dispatch($notifiedUsers->filter(), [
             'informativo_id' => $informativo->id,
@@ -380,18 +392,43 @@ class InformativoController extends ApiController
     public function reject(Request $request, Informativo $informativo)
     {
         $auth = $request->user();
-        if (!($auth->hasRole('revisor') || $auth->hasRole('admin') || $auth->can('informativos.review'))) {
+        if (!($auth->hasRole('revisor') || $auth->hasRole('admin') || $auth->can('informativo.review'))) {
             return $this->error('Sem permissão para rejeitar.', 'FORBIDDEN', [], 403);
         }
-        if ($informativo->status !== 'pendente') {
-            return $this->error('Rejeição apenas em itens pendentes.', 'UNPROCESSABLE', [], 422);
-        }
-        $request->validate(['reason' => ['required','string']]);
-        $informativo->update(['status' => 'rejeitado', 'rejection_reason' => $request->input('reason'), 'published_by' => null, 'published_at' => null]);
 
-        // Notify author and admins
+        // Revisor: only pendente. Admin: any except rascunho, rejeitado, despublicado
+        $allowedFrom = $auth->hasRole('admin')
+            ? ['pendente', 'revisao', 'aprovado', 'agendado', 'publicado']
+            : ['pendente'];
+        if (!in_array($informativo->status, $allowedFrom, true)) {
+            return $this->error(
+                $auth->hasRole('admin')
+                    ? 'Não é possível rejeitar neste estado.'
+                    : 'Rejeição apenas em itens pendentes.',
+                'UNPROCESSABLE',
+                [],
+                422
+            );
+        }
+
+        $request->validate(['reason' => ['required','string']]);
+        $wasPublished = $informativo->status === 'publicado';
+
+        $informativo->update([
+            'status' => 'rejeitado',
+            'rejection_reason' => $request->input('reason'),
+            'published_by' => null,
+            'published_at' => null,
+            'publish_at' => null,
+            'unpublished_at' => null,
+        ]);
+
+        if ($wasPublished) {
+            $this->notifyReadersUnpublished($informativo);
+        }
+
         $author = User::find($informativo->author_id);
-        $admins = User::where('role', 'admin')->get();
+        $admins = User::role('admin')->get();
         $notifiedUsers = collect([$author])->merge($admins)->unique('id');
         NotifyUsersJob::dispatch($notifiedUsers->filter(), [
             'informativo_id' => $informativo->id,
@@ -411,20 +448,31 @@ class InformativoController extends ApiController
     public function approve(Request $request, Informativo $informativo)
     {
         $auth = $request->user();
-        if (!($auth->hasRole('revisor') || $auth->hasRole('admin') || $auth->can('informativos.review'))) {
+        if (!($auth->hasRole('revisor') || $auth->hasRole('admin') || $auth->can('informativo.review'))) {
             return $this->error('Sem permissão para aprovar.', 'FORBIDDEN', [], 403);
         }
-        if ($informativo->status !== 'pendente') {
-            return $this->error('Aprovação apenas em itens pendentes.', 'UNPROCESSABLE', [], 422);
+
+        // Revisor: only from pendente. Admin may approve from draft/review to skip the pipeline.
+        $allowedFrom = $auth->hasRole('admin')
+            ? ['rascunho', 'revisao', 'pendente']
+            : ['pendente'];
+        if (!in_array($informativo->status, $allowedFrom, true)) {
+            return $this->error(
+                $auth->hasRole('admin')
+                    ? 'Aprovação apenas a partir de rascunho, revisão ou pendente.'
+                    : 'Aprovação apenas em itens pendentes.',
+                'UNPROCESSABLE',
+                [],
+                422
+            );
         }
         $informativo->update([
             'status' => 'aprovado',
             'rejection_reason' => null
         ]);
 
-        // Notify author and admins
         $author = User::find($informativo->author_id);
-        $admins = User::where('role', 'admin')->get();
+        $admins = User::role('admin')->get();
         $notifiedUsers = collect([$author])->merge($admins)->unique('id');
         NotifyUsersJob::dispatch($notifiedUsers->filter(), [
             'informativo_id' => $informativo->id,
@@ -444,44 +492,37 @@ class InformativoController extends ApiController
     public function requestChanges(Request $request, Informativo $informativo)
     {
         $auth = $request->user();
-        // Admins always have access
-        if ($auth && $auth->hasRole('admin')) {
-            $data = $request->validate(['feedback' => ['required','string']]);
-            $informativo->update(['status' => 'revisao', 'rejection_reason' => null]);
-            $informativo->reviews()->create([
-                'reviewer_id' => $auth->id,
-                'decision' => 'revisao',
-                'comment' => $data['feedback'],
-                'created_at' => now(),
-            ]);
-            Log::create([
-                'user_id' => $auth->id,
-                'action' => 'informativo.request_changes',
-                'description' => 'Solicitadas mudanças (admin) para Informativo ID '.$informativo->id,
-                'created_at' => now(),
-            ]);
-            $author = User::find($informativo->author_id);
-            $admins = User::where('role', 'admin')->get();
-            $notifiedUsers = collect([$author])->merge($admins)->unique('id');
-            NotifyUsersJob::dispatch($notifiedUsers->filter(), [
-                'informativo_id' => $informativo->id,
-                'title' => 'Solicitadas mudanças no informativo',
-                'message' => 'O informativo #'.$informativo->id.' recebeu uma solicitação de mudanças.',
-            ]);
-
-            return $this->success($informativo->fresh()->load('reviews'));
-        }
-        if (!$auth || !($auth->hasRole('revisor') || $auth->can('informativos.review'))) {
+        if (!$auth || !($auth->hasRole('revisor') || $auth->hasRole('admin') || $auth->can('informativo.review'))) {
             return $this->error('Sem permissão para solicitar revisão.', 'FORBIDDEN', [], 403);
         }
-        if ($informativo->status !== 'pendente') {
-            return $this->error('Solicitação de revisão apenas em itens pendentes.', 'UNPROCESSABLE', [], 422);
+
+        // Revisor: only pendente. Admin: any except rascunho, revisao, despublicado
+        $allowedFrom = $auth->hasRole('admin')
+            ? ['pendente', 'aprovado', 'agendado', 'publicado', 'rejeitado']
+            : ['pendente'];
+        if (!in_array($informativo->status, $allowedFrom, true)) {
+            return $this->error(
+                $auth->hasRole('admin')
+                    ? 'Não é possível solicitar alterações neste estado.'
+                    : 'Solicitação de revisão apenas em itens pendentes.',
+                'UNPROCESSABLE',
+                [],
+                422
+            );
         }
+
         $data = $request->validate(['feedback' => ['required','string']]);
+        $wasPublished = $informativo->status === 'publicado';
 
-        $informativo->update(['status' => 'revisao', 'rejection_reason' => null]);
+        $informativo->update([
+            'status' => 'revisao',
+            'rejection_reason' => null,
+            'published_by' => null,
+            'published_at' => null,
+            'publish_at' => null,
+            'unpublished_at' => null,
+        ]);
 
-        // Log review entry
         $informativo->reviews()->create([
             'reviewer_id' => $auth->id,
             'decision' => 'revisao',
@@ -489,9 +530,12 @@ class InformativoController extends ApiController
             'created_at' => now(),
         ]);
 
-        // Notify author and admins
+        if ($wasPublished) {
+            $this->notifyReadersUnpublished($informativo);
+        }
+
         $author = User::find($informativo->author_id);
-        $admins = User::where('role', 'admin')->get();
+        $admins = User::role('admin')->get();
         $notifiedUsers = collect([$author])->merge($admins)->unique('id');
         NotifyUsersJob::dispatch($notifiedUsers->filter(), [
             'informativo_id' => $informativo->id,
@@ -506,6 +550,63 @@ class InformativoController extends ApiController
             'created_at' => now(),
         ]);
         return $this->success($informativo->fresh()->load('reviews'));
+    }
+
+    /**
+     * Admin: pull a published informativo back to draft (unpublish).
+     */
+    public function revertToDraft(Request $request, Informativo $informativo)
+    {
+        $auth = $request->user();
+        if (!$auth || !$auth->hasRole('admin')) {
+            return $this->error('Sem permissão para reverter a rascunho.', 'FORBIDDEN', [], 403);
+        }
+        if ($informativo->status !== 'publicado') {
+            return $this->error('Apenas informativos publicados podem voltar a rascunho.', 'UNPROCESSABLE', [], 422);
+        }
+
+        $informativo->update([
+            'status' => 'rascunho',
+            'rejection_reason' => null,
+            'published_by' => null,
+            'published_at' => null,
+            'publish_at' => null,
+            'unpublished_at' => null,
+        ]);
+
+        $this->notifyReadersUnpublished($informativo);
+
+        $author = User::find($informativo->author_id);
+        $admins = User::role('admin')->get();
+        $notifiedUsers = collect([$author])->merge($admins)->unique('id');
+        NotifyUsersJob::dispatch($notifiedUsers->filter(), [
+            'informativo_id' => $informativo->id,
+            'title' => 'Informativo revertido a rascunho',
+            'message' => 'O informativo #'.$informativo->id.' foi despublicado e voltou a rascunho.',
+        ]);
+
+        Log::create([
+            'user_id' => $auth->id,
+            'action' => 'informativo.revert_to_draft',
+            'description' => 'Informativo ID '.$informativo->id.' revertido de publicado para rascunho',
+            'created_at' => now(),
+        ]);
+
+        return $this->success($informativo->fresh());
+    }
+
+    private function notifyReadersUnpublished(Informativo $informativo): void
+    {
+        $readers = $informativo->relevantReadersQuery()->get();
+        if ($readers->isEmpty()) {
+            return;
+        }
+
+        NotifyUsersJob::dispatch($readers, [
+            'informativo_id' => $informativo->id,
+            'title' => 'Informativo despublicado',
+            'message' => 'O informativo #'.$informativo->id.' foi despublicado.',
+        ]);
     }
 
     public function toggleFavorite(Request $request, Informativo $informativo)

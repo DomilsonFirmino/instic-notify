@@ -74,7 +74,9 @@ class User extends Authenticatable
 
     public function notifications()
     {
-        return $this->hasMany(\App\Models\Notification::class);
+        return $this->hasMany(\App\Models\Notification::class)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
     }
 
     public function authoredInformativos()

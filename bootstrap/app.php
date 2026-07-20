@@ -150,6 +150,9 @@ return Application::configure(basePath: dirname(__DIR__))
         });
     })
     ->withSchedule(function (Schedule $schedule): void {
-        $schedule->call(new InformativoScheduler())->everyMinute();
+        $schedule->call(new InformativoScheduler())
+            ->everyMinute()
+            ->name('informativo-scheduler')
+            ->withoutOverlapping(5);
     })
     ->create();

@@ -10,8 +10,13 @@ class StoreInformativoRequest extends ApiRequest
     public function authorize(): bool {
         return $this->user()->hasRole('admin') || $this->user()->hasRole('editor');
     }
+
     public function rules(): array
     {
+        $allowedStatuses = $this->user()->hasRole('admin')
+            ? ['rascunho', 'pendente', 'aprovado']
+            : ['rascunho', 'pendente'];
+
         return [
             // Avoid duplicated informativos by unique title within the same audience scope
             // Scope uniqueness by optional course/year/department to allow global vs targeted items
@@ -25,7 +30,7 @@ class StoreInformativoRequest extends ApiRequest
                     })
             ],
             'content' => ['required','string'],
-            'status' => ['required','string','in:rascunho,pendente,revisao,aprovado,agendado,publicado,despublicado,rejeitado'],
+            'status' => ['required','string', Rule::in($allowedStatuses)],
             'category_id' => ['required','integer','exists:categories,id'],
             'course_id' => ['nullable','integer','exists:courses,id'],
             'year_id' => ['nullable','integer','exists:years,id'],

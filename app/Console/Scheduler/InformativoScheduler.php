@@ -4,7 +4,6 @@ namespace App\Console\Scheduler;
 
 use App\Jobs\NotifyUsersJob;
 use App\Models\Informativo;
-use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -12,103 +11,136 @@ class InformativoScheduler
 {
     public function __invoke()
     {
-        try {
-            DB::transaction(function () {
-                $now = now()->startOfMinute();
-                Log::info('Scheduler iniciado em ' . $now);
+        $now = now()->startOfMinute();
+        Log::info('Scheduler iniciado em ' . $now);
 
-                $publicar = Informativo::whereIn('status', ['agendado','aprovado'])
-                    ->whereDate('publish_at', $now->toDateString())
-                    ->get();
-                $totalPublicar = $publicar->count();
-                $publicados = 0;
-                $skipPublicar = 0;
-                foreach ($publicar as $info) {
-                    if ($info->status === 'agendado') {
-                        Log::info('Publicando informativo ID ' . $info->id . ' (publish_at: ' . $info->publish_at . ')');
-                        $info->update(['status' => 'publicado', 'published_at' => $now]);
+        $publicados = 0;
+        $skipPublicar = 0;
+        $despublicados = 0;
 
-                        // Notifica apenas os leitores relevantes por audiência
-                        $relevantReaders = $this->getRelevantReaders($info);
-                        NotifyUsersJob::dispatch($relevantReaders, [
-                            'informativo_id' => $info->id,
-                            'title' => 'Novo informativo publicado',
-                            'message' => 'O informativo #' . $info->id . ' foi publicado.',
-                        ]);
-                        $publicados++;
-                    } else {
-                        $skipPublicar++;
+        // Publish: only agendado|aprovado, due, and not already past unpublish time
+        $toPublishIds = Informativo::query()
+            ->whereIn('status', ['agendado', 'aprovado'])
+            ->whereNotNull('publish_at')
+            ->where('publish_at', '<=', $now)
+            ->where(function ($q) use ($now) {
+                $q->whereNull('unpublished_at')
+                    ->orWhere('unpublished_at', '>', $now);
+            })
+            ->pluck('id');
+
+        foreach ($toPublishIds as $id) {
+            $published = null;
+            try {
+                $published = DB::transaction(function () use ($id, $now) {
+                    $info = Informativo::whereKey($id)
+                        ->whereIn('status', ['agendado', 'aprovado'])
+                        ->whereNotNull('publish_at')
+                        ->where('publish_at', '<=', $now)
+                        ->where(function ($q) use ($now) {
+                            $q->whereNull('unpublished_at')
+                                ->orWhere('unpublished_at', '>', $now);
+                        })
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (!$info) {
+                        return null;
                     }
-                }
 
-                $despublicar = Informativo::where('status', 'publicado')
-                    ->whereDate('unpublished_at', $now->toDateString())
-                    ->get();
-                $totalDespublicar = $despublicar->count();
-                $despublicados = 0;
-                $skipDespublicar = 0;
-                foreach ($despublicar as $info) {
-                    if ($info->status === 'publicado') {
-                        Log::info('Despublicando informativo ID ' . $info->id . ' (unpublished_at: ' . $info->unpublished_at . ')');
-                        $info->update(['status' => 'despublicado']);
+                    Log::info('Publicando informativo ID ' . $info->id
+                        . ' (publish_at: ' . $info->publish_at . ', status: ' . $info->status . ')');
 
-                        // Notifica apenas os leitores que receberam a publicação originalmente
-                        $relevantReaders = $this->getRelevantReaders($info);
-                        NotifyUsersJob::dispatch($relevantReaders, [
-                            'informativo_id' => $info->id,
-                            'title' => 'Informativo despublicado',
-                            'message' => 'O informativo #' . $info->id . ' foi despublicado.',
-                        ]);
-                        $despublicados++;
-                    } else {
-                        $skipDespublicar++;
-                    }
-                }
+                    $info->update([
+                        'status' => 'publicado',
+                        'published_at' => $now,
+                    ]);
 
-                Log::info('Scheduler estatísticas: '
-                    . ' Publicar encontrados: ' . $totalPublicar
-                    . ', publicados: ' . $publicados
-                    . ', skipados: ' . $skipPublicar
-                    . ' | Despublicar encontrados: ' . $totalDespublicar
-                    . ', despublicados: ' . $despublicados
-                    . ', skipados: ' . $skipDespublicar
-                );
-                Log::info('Scheduler finalizado em ' . now());
-            }, attempts: 2);
-        } catch (\Throwable $e) {
-            Log::error('Erro na transação do scheduler: ' . $e->getMessage(), ['exception' => $e]);
+                    return $info->fresh();
+                });
+            } catch (\Throwable $e) {
+                Log::error('Erro ao publicar informativo ID ' . $id . ': ' . $e->getMessage(), [
+                    'exception' => $e,
+                ]);
+                continue;
+            }
+
+            if (!$published) {
+                $skipPublicar++;
+                continue;
+            }
+
+            $this->notifyReaders($published, 'Novo informativo publicado',
+                'O informativo #' . $published->id . ' foi publicado.');
+            $publicados++;
         }
+
+        // Unpublish: only items still publicado whose unpublished_at is due
+        $toUnpublishIds = Informativo::query()
+            ->where('status', 'publicado')
+            ->whereNotNull('unpublished_at')
+            ->where('unpublished_at', '<=', $now)
+            ->pluck('id');
+
+        foreach ($toUnpublishIds as $id) {
+            $unpublished = null;
+            try {
+                $unpublished = DB::transaction(function () use ($id, $now) {
+                    $info = Informativo::whereKey($id)
+                        ->where('status', 'publicado')
+                        ->whereNotNull('unpublished_at')
+                        ->where('unpublished_at', '<=', $now)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (!$info) {
+                        return null;
+                    }
+
+                    Log::info('Despublicando informativo ID ' . $info->id
+                        . ' (unpublished_at: ' . $info->unpublished_at . ')');
+
+                    $info->update(['status' => 'despublicado']);
+
+                    return $info->fresh();
+                });
+            } catch (\Throwable $e) {
+                Log::error('Erro ao despublicar informativo ID ' . $id . ': ' . $e->getMessage(), [
+                    'exception' => $e,
+                ]);
+                continue;
+            }
+
+            if (!$unpublished) {
+                continue;
+            }
+
+            $this->notifyReaders($unpublished, 'Informativo despublicado',
+                'O informativo #' . $unpublished->id . ' foi despublicado.');
+            $despublicados++;
+        }
+
+        Log::info('Scheduler estatísticas: '
+            . ' publicar candidatos: ' . $toPublishIds->count()
+            . ', publicados: ' . $publicados
+            . ', skipados: ' . $skipPublicar
+            . ' | despublicar candidatos: ' . $toUnpublishIds->count()
+            . ', despublicados: ' . $despublicados
+        );
+        Log::info('Scheduler finalizado em ' . now());
     }
 
-    private function getRelevantReaders(Informativo $informativo)
+    private function notifyReaders(Informativo $informativo, string $title, string $message): void
     {
-        $query = User::query()->where('role', 'leitor');
-
-        if (is_null($informativo->course_id)
-            && is_null($informativo->year_id)
-            && is_null($informativo->department_id)
-        ) {
-            return $query->get();
+        $readers = $informativo->relevantReadersQuery()->get();
+        if ($readers->isEmpty()) {
+            return;
         }
 
-        return $query->where(function ($subQuery) use ($informativo) {
-            if (!is_null($informativo->course_id)) {
-                $subQuery->orWhere('course_id', $informativo->course_id);
-            }
-
-            if (!is_null($informativo->year_id)) {
-                $subQuery->orWhere('year_id', $informativo->year_id);
-            }
-
-            if (!is_null($informativo->department_id)) {
-                $subQuery->orWhere('department_id', $informativo->department_id);
-            }
-
-            $subQuery->orWhere(function ($nested) {
-                $nested->whereNull('course_id')
-                    ->whereNull('year_id')
-                    ->whereNull('department_id');
-            });
-        })->get();
+        NotifyUsersJob::dispatch($readers, [
+            'informativo_id' => $informativo->id,
+            'title' => $title,
+            'message' => $message,
+        ]);
     }
 }

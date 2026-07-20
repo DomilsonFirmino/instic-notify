@@ -141,7 +141,18 @@ class DatabaseSeeder extends Seeder
                 return Year::updateOrCreate(['name' => (string)$num], ['name' => (string)$num]);
             });
 
-            $categories = Category::factory()->count(5)->create();
+            $categories = collect([
+                ['name' => 'Académico', 'description' => 'Avisos sobre aulas, exames, calendário e atividades lectivas.'],
+                ['name' => 'Administrativo', 'description' => 'Comunicados da secretaria, matrículas, propinas e documentação.'],
+                ['name' => 'Eventos', 'description' => 'Palestras, workshops, cerimónias e actividades extracurriculares.'],
+                ['name' => 'Urgente', 'description' => 'Comunicados prioritários que requerem atenção imediata.'],
+                ['name' => 'Geral', 'description' => 'Informações gerais destinadas a toda a comunidade académica.'],
+            ])->map(function (array $data) {
+                return Category::updateOrCreate(
+                    ['name' => $data['name']],
+                    $data
+                );
+            });
 
             // Usuários de exemplo (precisam de course_id e year_id)
             $baseUser = [ 'password' => bcrypt('password123') ];

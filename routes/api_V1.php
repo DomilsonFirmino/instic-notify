@@ -58,6 +58,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
             Route::post('informativos/{informativo}/approve', [InformativoController::class, 'approve']);
             Route::post('informativos/{informativo}/request-changes', [InformativoController::class, 'requestChanges']);
         });
+        Route::post('informativos/{informativo}/revert-to-draft', [InformativoController::class, 'revertToDraft'])
+            ->middleware('role:admin');
     });
 
     //apenas se estiver publicado
